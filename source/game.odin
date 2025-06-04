@@ -5,6 +5,7 @@ import "core:image/png"
 import "core:log"
 import "core:slice"
 import "core:fmt"
+import "core:strings"
 import stbi "vendor:stb/image"
 import sapp "sokol/app"
 import sg "sokol/gfx"
@@ -42,6 +43,7 @@ Game_Memory :: struct {
 	keys_processed: #sparse [sapp.Keycode]bool,
 
 	player: Entity,
+    resman: ^Resource_Manager
 }
 
 Game_State :: enum {
@@ -63,11 +65,15 @@ Texture2D :: struct {
 }
 
 Entity :: struct {
-	position, size, velocity: Vec2,
+    position: Vec2,
+    size: Vec2, 
+    velocity: Vec2,
 	color: Vec3,
 	rotation: f32,
-	is_solid, destroyed: bool,
+	is_solid: bool,
+    destroyed: bool,
 	sprite: Texture2D,
+    texture_name: string,
 }
 
 Direction :: enum { Up, Down, Left, Right, }
@@ -81,6 +87,11 @@ Direction_Vectors := [Direction]Vec2{
 Vertex :: struct {
 	x, y: f32,
 	u, v: f32,
+}
+
+Resource_Manager :: struct {
+    textures: map[string]sg.Image,
+    // sounds: map[string]^ma.sound,
 }
 
 g: ^Game_Memory
@@ -101,76 +112,57 @@ game_app_default_desc :: proc() -> sapp.Desc {
 @export
 game_init :: proc() {
 	context.logger = log.create_console_logger()
+    log.info("### START Game Init ###")
+
 	g = new(Game_Memory)
+    if g == nil {
+        log.error("Failed to allocate game memory")
+        return
+    }
+
 	game_hot_reloaded(g)
+    stbi.set_flip_vertically_on_load(1)
 
 	sg.setup({
 		environment = sglue.environment(),
 		logger = { func = slog.func },
 	})
 
-	vertices := [?]Vertex {
-        {0, 1, 0, 1},
-        {1, 0, 1, 0},
-        {0, 0, 0, 0},
-
-        {0, 1, 0, 1},
-        {1, 1, 1, 1},
-        {1, 0, 1, 0},
+    if !sg.isvalid() {
+        log.error("Failed to initialize Sokol GFX")
+        return
     }
 
-	g.bind.vertex_buffers[0] = sg.make_buffer({
-		data = { ptr = &vertices, size = size_of(vertices) },
-	})
+    g.resman = new(Resource_Manager)
+    resman_init()
+    log.info("Initialized resource manager")
 
-	g.pip = sg.make_pipeline({
-		shader = sg.make_shader(game_shader_desc(sg.query_backend())),
-		layout = {
-			attrs = {
-				ATTR_game_pos = { format = .FLOAT2 },
-				ATTR_game_texcoord0 = { format = .FLOAT2 },
-			}
-		},
-        colors = {
-            0 = {
-                blend = {
-                    enabled = true,
-                    src_factor_rgb = .SRC_ALPHA,
-                    dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
-                    src_factor_alpha = .ONE,
-                    dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
-                }
-            }
-        }
-	})
+    sprite_renderer_init()
+    log.info("Initialized sprite renderer")
 
-    stbi.set_flip_vertically_on_load(1)
-    pixels, width, height := read_image_from_file("assets/paddle.png")
-    g.bind.images[IMG_tex] = sg.make_image({
-        width = i32(width),
-        height = i32(height),
-        data = {
-            subimage = {
-                0 = {
-                    0 = { ptr = pixels, size = uint(width * height * 4) },
-                },
-            },
-        },
-    })
-
-    stbi.image_free(pixels)
-
-	g.bind.samplers[SMP_smp] = sg.make_sampler({})
+    resman_load_texture("assets/background.jpg", "background")
+    resman_load_texture("assets/awesomeface.png", "face")
+    resman_load_texture("assets/block.png", "block")
+    resman_load_texture("assets/block_solid.png", "block_solid")
+    resman_load_texture("assets/paddle.png", "paddle")
+    resman_load_texture("assets/particle.png", "particle")
+    resman_load_texture("assets/powerup_chaos.png", "chaos")
+    resman_load_texture("assets/powerup_confuse.png", "confuse")
+    resman_load_texture("assets/powerup_increase.png", "size")
+    resman_load_texture("assets/powerup_passthrough.png", "passthrough")
+    resman_load_texture("assets/powerup_speed.png", "speed")
+    resman_load_texture("assets/powerup_sticky.png", "sticky")
+    log.info("Finished loading textures")
 
 	g.state = .Active
 	g.width = LOGICAL_W
 	g.height = LOGICAL_H
+
 	player: Entity
     player_pos := Vec2{ (f32(g.width) / 2) - (PLAYER_SIZE.x / 2), f32(g.height) - PLAYER_SIZE.y}
-    // player_pos := Vec2{ (f32(g.width) / 2) - (PLAYER_SIZE.x / 2), f32(g.height) - PLAYER_SIZE.y}
-	entity_init(entity = &player, position = player_pos, sprite = {}, size = PLAYER_SIZE)
-
+	entity_init(entity = &player, position = player_pos, size = PLAYER_SIZE, texture_name = "paddle")
 	g.player = player
+    log.info("## END Game Init###")
 }
 
 x :f32= 0
@@ -180,22 +172,18 @@ game_frame :: proc() {
 
     process_input(dt)
 
-	vs_params := Vs_Params {
-		mvp = compute_sprite_mvp(g.player),
-	}
-
 	pass_action := sg.Pass_Action {
 		colors = {
 			0 = { load_action = .CLEAR, clear_value = { 0.5, 0.2, 0.5, 1 } },
 		},
 	}
 	sg.begin_pass({ action = pass_action, swapchain = sglue.swapchain() })
-	sg.apply_pipeline(g.pip)
-	sg.apply_bindings(g.bind)
-	// vertex shader uniform with model-view-projection matrix
-	sg.apply_uniforms(UB_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
-    // TODO: draw_sprite
-	sg.draw(0, 6, 1)
+        sg.apply_pipeline(g.pip)
+        // TODO: draw bg
+        entity_draw(g.player)
+        // sg.apply_bindings(g.bind)
+        // sg.draw(0, 6, 1)
+
 	sg.end_pass()
 	sg.commit()
 
@@ -204,13 +192,13 @@ game_frame :: proc() {
 
 // 2D
 // rotation in degrees
-compute_sprite_mvp :: proc(entity: Entity) -> Mat4 {
+compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4 {
 	proj := linalg.matrix_ortho3d_f32(0, f32(g.width), f32(g.height), 0, -1, 1)
-    model := linalg.matrix4_scale(Vec3{entity.size.x, entity.size.y, 1})
-    model = linalg.matrix4_translate(Vec3{-0.5 * entity.size.x, -0.5 * entity.size.y, 0}) * model
-    model = linalg.matrix4_rotate(to_radians(entity.rotation), Vec3{0,0,1}) * model
-    model = linalg.matrix4_translate(Vec3{0.5 * entity.size.x, 0.5 * entity.size.y, 0}) * model
-    model = linalg.matrix4_translate(Vec3{entity.position.x, entity.position.y, 0}) * model
+    model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
+    model = linalg.matrix4_translate(Vec3{-0.5 * size.x, -0.5 * size.y, 0}) * model
+    model = linalg.matrix4_rotate(to_radians(rotation), Vec3{0,0,1}) * model
+    model = linalg.matrix4_translate(Vec3{0.5 * size.x, 0.5 * size.y, 0}) * model
+    model = linalg.matrix4_translate(Vec3{position.x, position.y, 0}) * model
 	return proj * model
 }
 
@@ -293,6 +281,7 @@ game_cleanup :: proc() {
 	sg.shutdown()
 	sg.destroy_buffer(g.bind.vertex_buffers[0])
 	sg.destroy_pipeline(g.pip)
+    delete(g.resman.textures)
 	free(g)
 }
 
@@ -334,26 +323,201 @@ entity_init :: proc(
 	entity: ^Entity, 
 	position: Vec2 = {0,0}, 
 	size: Vec2 = {1,1}, 
-	sprite: Texture2D,
 	color: Vec3 = {1,1,1},
 	velocity: Vec2 = {0,0},
+    texture_name: string = "white",
 ) {
 	entity.position = position
 	entity.size = size
-	entity.sprite = sprite
 	entity.color = color
 	entity.velocity = velocity
 	entity.rotation = 0
+    entity.texture_name = texture_name
 }
 
-read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32) {
+read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32, i32) {
     file := fmt.ctprintf("%v", file)
     width, height, n_channels: i32
     pixels := stbi.load(file, &width, &height, &n_channels, 4)
     if pixels == nil {
         log.error("Failed to load image")
-        return nil, 0, 0
+        return nil, 0, 0, 0
     }
-    return pixels, width, height
+    return pixels, width, height, n_channels
 
+}
+
+resman_init :: proc() {
+    g.resman.textures = make(map[string]sg.Image)
+}
+
+resman_load_texture :: proc(path: string, name: string) -> sg.Image {
+    pixels, width, height, _ := read_image_from_file(path)
+    if pixels == nil {
+        log.error("Failed to load texture:", path)
+        return {}
+    }
+    defer stbi.image_free(pixels)
+
+    img := sg.make_image({
+        width = i32(width),
+        height = i32(height),
+        pixel_format = .RGBA8,
+        data = {
+            subimage = {
+                0 = {
+                    0 = { ptr = pixels, size = uint(width * height * 4) }, // always 4 bytes per pixel
+                },
+            },
+        },
+        label = strings.clone_to_cstring(name),
+    })
+    if sg.query_image_state(img) != .VALID {
+        log.error("Failed to create image for:", name)
+        return {}
+    }
+
+    g.resman.textures[name] = img
+    log.info("Loaded texture:", name, "size:", width ,"x", height)
+    return img
+}
+
+resman_get_texture :: proc(name: string) -> (sg.Image, bool) {
+    return g.resman.textures[name]
+}
+
+draw_sprite :: proc(position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, color: Vec3 = {1,1,1}, texture_name: string = "") {
+    // 1. Compute transformation matrix and combine with projection
+    mvp := compute_sprite_mvp(position, size, rotation)
+
+    // 2. Prepare shader uniforms
+	vs_params := Vs_Params {
+		mvp = mvp
+	}
+    // fs_params := Fs_Params{}
+
+    // 3. Setup Bindings
+    if texture_name != "" {
+        if texture, exists := resman_get_texture(texture_name); exists {
+            g.bind.images[IMG_tex] = texture
+        } else {
+            log.warn("Texture not found:", texture_name)
+            g.bind.images[IMG_tex] = g.resman.textures["white"]
+        }
+    } else {
+        g.bind.images[IMG_tex] = g.resman.textures["white"]
+    }
+
+    // 4. Issue draw commands
+    sg.apply_bindings(g.bind)
+	sg.apply_uniforms(UB_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
+    sg.draw(0, 6, 1)
+}
+
+entity_draw :: proc(entity: Entity) {
+    if entity.texture_name != "" {
+        draw_sprite(
+            entity.position,
+            entity.size,
+            entity.rotation,
+            entity.color,
+            entity.texture_name,
+        )
+    }
+}
+
+sprite_renderer_init :: proc() {
+    log.info("Initializing sprite renderer...")
+    // 1. Create the quad geometry (same as OpenGL version)
+    vertices := [?]Vertex {
+        {0, 1, 0, 1},  // bottom-left
+        {1, 0, 1, 0},  // top-right  
+        {0, 0, 0, 0},  // top-left
+
+        {0, 1, 0, 1},  // bottom-left
+        {1, 1, 1, 1},  // bottom-right
+        {1, 0, 1, 0},  // top-right
+    }
+
+    // 2. Create vertex buffer
+    g.bind.vertex_buffers[0] = sg.make_buffer({
+        data = { ptr = &vertices, size = size_of(vertices) },
+        label = "sprite-vertices",
+    })
+    if sg.query_buffer_state(g.bind.vertex_buffers[0]) != .VALID {
+        log.error("Failed to create vertex buffer")
+        return
+    }
+    log.info("Created vertex buffer")
+
+    // 3. Create a default white texture for solid colors
+    white_pixels := [4]u8{255, 255, 255, 255}  // RGBA white
+    white_texture := sg.make_image({
+        width = 1,
+        height = 1,
+        data = {
+            subimage = {
+                0 = {
+                    0 = { ptr = &white_pixels, size = size_of(white_pixels) },
+                },
+            },
+        },
+        label = "white-texture",
+    })
+    if sg.query_image_state(white_texture) != .VALID {
+       log.error("Failed to create white texture")
+       return
+    }
+
+    g.resman.textures["white"] = white_texture
+    log.info("Created white texture")
+
+    // 4. Set up default bindings
+    g.bind.images[IMG_tex] = g.resman.textures["white"]
+
+    g.bind.samplers[SMP_smp] = sg.make_sampler({
+        label = "sprite-sampler",
+    })
+    if sg.query_sampler_state(g.bind.samplers[SMP_smp]) != .VALID {
+        log.error("Failed to create sampler")
+        return
+    }
+    log.info("Created sampler")
+
+    // 6. Create shader
+    shader := sg.make_shader(game_shader_desc(sg.query_backend()))
+    if sg.query_shader_state(shader) != .VALID {
+        log.error("Failed to create shader")
+        return
+    }
+    log.info("Created shader")
+
+    // 6. Create the rendering pipeline
+    g.pip = sg.make_pipeline({
+        shader = shader,
+		layout = {
+			attrs = {
+				ATTR_game_pos = { format = .FLOAT2 },
+				ATTR_game_texcoord0 = { format = .FLOAT2 },
+			}
+		},
+        colors = {
+            0 = {
+                blend = {
+                    enabled = true,
+                    src_factor_rgb = .SRC_ALPHA,
+                    dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+                    src_factor_alpha = .ONE,
+                    dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
+                }
+            }
+        },
+        label = "sprite-pipeline",
+    })
+    if sg.query_pipeline_state(g.pip) != .VALID {
+        log.error("Failed to create pipeline")
+        return
+    }
+    log.info("Created pipeline")
+    log.info("Done initializing sprite renderer")
 }
