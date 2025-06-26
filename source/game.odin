@@ -8,6 +8,8 @@ import "core:fmt"
 import "core:strings"
 import "core:strconv"
 import "core:os"
+import "core:math/rand"
+import sa "core:container/small_array"
 import stbi "vendor:stb/image"
 import sapp "sokol/app"
 import sg "sokol/gfx"
@@ -20,11 +22,11 @@ to_radians :: linalg.to_radians
 LOGICAL_W :: 1920
 LOGICAL_H :: 1080
 
-PLAYER_SIZE :: Vec2{100, 20}
+PLAYER_SIZE :: Vec2{150, 30}
 PLAYER_VELOCITY :: 1000
 
 BALL_RADIUS :: 12.5
-BALL_INITIAL_VELOCITY :: Vec2{100, -350}
+BALL_INITIAL_VELOCITY :: Vec2{200, -700}
 
 MAX_PARTICLES :: 500
 
@@ -35,8 +37,11 @@ Vec4 :: [4]f32
 Mat4 :: matrix[4,4]f32
 
 Game_Memory :: struct {
-	pip: sg.Pipeline,
-	bind: sg.Bindings,
+    sprite_pip: sg.Pipeline,
+	sprite_bind: sg.Bindings,
+
+    particle_pip: sg.Pipeline,
+    particle_bind: sg.Bindings,
 
 	width: u32,
 	height: u32,
@@ -44,10 +49,18 @@ Game_Memory :: struct {
 	keys: #sparse [sapp.Keycode]bool,
 	keys_processed: #sparse [sapp.Keycode]bool,
 
+	player: Entity,
+    ball: Ball_Object,
+
+    resman: ^Resource_Manager,
+
     levels: [dynamic]Game_Level,
     level: u32,
     powerups: [dynamic]Powerup_Object,
     lives: i32,
+
+    ball_pg: Particle_Generator,
+
 
     // shake_time: f32,
     // screen_width: u32,
@@ -56,10 +69,6 @@ Game_Memory :: struct {
     // viewport_y: i32,
     // viewport_width: i32,
     // viewport_height: i32,
-
-	player: Entity,
-    ball: Ball_Object,
-    resman: ^Resource_Manager
 }
 
 Game_State :: enum {
@@ -162,20 +171,17 @@ Tile_Code :: enum {
     Brick_D = 5,
 }
 
-// Particle :: struct {
-//     position, velocity: Vec2,
-//     color: Vec4,
-//     life: f32,
-// }
-//
-// Particle_Generator :: struct {
-//     particles: sa.Small_Array(MAX_PARTICLES, Particle),
-//     shader: Shader,
-//     texture: Texture2D,
-//     max_particles: int,
-//     last_used_particle: int,
-//     vao: u32,
-// }
+Particle :: struct {
+    position, velocity: Vec2,
+    color: Vec4,
+    life: f32,
+}
+
+Particle_Generator :: struct {
+    particles: sa.Small_Array(MAX_PARTICLES, Particle),
+    max_particles: int,
+    last_used_particle: int,
+}
 
 g: ^Game_Memory
 
@@ -235,8 +241,11 @@ game_init :: proc() {
     sprite_renderer_init()
     log.info("Initialized sprite renderer")
 
+    // TODO: split out part_gen vs renderer (diff pg's can use same renderer)
+    particle_generator_init(&g.ball_pg)
+    log.info("Initialized particle generator and particle renderer")
+
     resman_load_texture("assets/background.jpg", "background")
-    resman_load_texture("assets/awesomeface.png", "face")
     resman_load_texture("assets/block.png", "block")
     resman_load_texture("assets/block_solid.png", "block_solid")
     resman_load_texture("assets/paddle.png", "paddle")
@@ -287,7 +296,7 @@ update :: proc(dt: f32) {
 
     ball_move(dt, g.width)
     game_do_collisions()
-    // particle_generator_update(&ball_pg, dt, game.ball, 2, {game.ball.radius / 2, game.ball.radius / 2})
+    particle_generator_update(&g.ball_pg, dt, g.ball, 2, {g.ball.radius / 2, g.ball.radius / 2})
     // powerups_update(dt)
 
     // if g.shake_time > 0 {
@@ -323,7 +332,8 @@ render :: proc(dt: f32) {
     // TODO: post processing effects
 
 	sg.begin_pass({ action = pass_action, swapchain = sglue.swapchain() })
-        sg.apply_pipeline(g.pip)
+        // Sprites
+        sg.apply_pipeline(g.sprite_pip)
         draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
         game_level_draw(&g.levels[g.level])
         entity_draw(g.player)
@@ -332,8 +342,10 @@ render :: proc(dt: f32) {
         //         game_object_draw(p)
         //     }
         // }
-        // particle_generator_draw(ball_pg)
         game_object_draw(g.ball.game_object)
+
+        sg.apply_pipeline(g.particle_pip)
+        particle_generator_draw(g.ball_pg)
 	sg.end_pass()
 	sg.commit()
 
@@ -358,13 +370,18 @@ render :: proc(dt: f32) {
 // 2D
 // rotation in degrees
 compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4 {
-	proj := linalg.matrix_ortho3d_f32(0, f32(g.width), f32(g.height), 0, -1, 1)
+	proj := compute_projection()
     model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
     model = linalg.matrix4_translate(Vec3{-0.5 * size.x, -0.5 * size.y, 0}) * model
     model = linalg.matrix4_rotate(to_radians(rotation), Vec3{0,0,1}) * model
     model = linalg.matrix4_translate(Vec3{0.5 * size.x, 0.5 * size.y, 0}) * model
     model = linalg.matrix4_translate(Vec3{position.x, position.y, 0}) * model
 	return proj * model
+}
+
+compute_projection :: proc() -> matrix[4,4]f32 {
+	proj := linalg.matrix_ortho3d_f32(0, f32(g.width), f32(g.height), 0, -1, 1)
+    return proj
 }
 
 force_reset: bool
@@ -445,8 +462,10 @@ process_input :: proc(dt: f32) {
 @export
 game_cleanup :: proc() {
 	sg.shutdown()
-	sg.destroy_buffer(g.bind.vertex_buffers[0])
-	sg.destroy_pipeline(g.pip)
+	sg.destroy_buffer(g.sprite_bind.vertex_buffers[0])
+	sg.destroy_pipeline(g.sprite_pip)
+	sg.destroy_buffer(g.particle_bind.vertex_buffers[0])
+	sg.destroy_pipeline(g.particle_pip)
     delete(g.resman.textures)
 	free(g)
 }
@@ -557,29 +576,24 @@ draw_sprite :: proc(position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, tex
     mvp := compute_sprite_mvp(position, size, rotation)
 
     // 2. Prepare shader uniforms
-	vs_params := Vs_Params {
+	sprite_vs_params := Sprite_Vs_Params {
 		mvp = mvp
 	}
-	fs_params := Fs_Params {
+	sprite_fs_params := Sprite_Fs_Params {
 		sprite_color = color
 	}
 
-    // 3. Setup Bindings
-    if texture_name != "" {
-        if texture, exists := resman_get_texture(texture_name); exists {
-            g.bind.images[IMG_tex] = texture
-        } else {
-            log.warn("Texture not found:", texture_name)
-            g.bind.images[IMG_tex] = g.resman.textures["white"]
-        }
+    // TODO: bind texture
+    if tex, exists := resman_get_texture(texture_name); exists {
+        g.sprite_bind.images[IMG_tex] = tex
     } else {
-        g.bind.images[IMG_tex] = g.resman.textures["white"]
+        g.sprite_bind.images[IMG_tex], _ = resman_get_texture("white")
     }
 
     // 4. Issue draw commands
-    sg.apply_bindings(g.bind)
-	sg.apply_uniforms(UB_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
-	sg.apply_uniforms(UB_fs_params, { ptr = &fs_params, size = size_of(fs_params) })
+    sg.apply_bindings(g.sprite_bind)
+	sg.apply_uniforms(UB_sprite_vs_params, { ptr = &sprite_vs_params, size = size_of(sprite_vs_params) })
+	sg.apply_uniforms(UB_sprite_fs_params, { ptr = &sprite_fs_params, size = size_of(sprite_fs_params) })
     sg.draw(0, 6, 1)
 }
 
@@ -595,7 +609,7 @@ entity_draw :: proc(entity: Entity) {
     }
 }
 
-// TODO: expose dependencies: bind, pip, resman, shader
+// TODO: expose dependencies: bind, pip, resman, shader. consolidate into a "renderer" data object
 sprite_renderer_init :: proc() {
     log.info("Initializing sprite renderer...")
     // 1. Create the quad geometry (same as OpenGL version)
@@ -610,17 +624,18 @@ sprite_renderer_init :: proc() {
     }
 
     // 2. Create vertex buffer
-    g.bind.vertex_buffers[0] = sg.make_buffer({
+    g.sprite_bind.vertex_buffers[0] = sg.make_buffer({
         data = { ptr = &vertices, size = size_of(vertices) },
         label = "sprite-vertices",
     })
-    if sg.query_buffer_state(g.bind.vertex_buffers[0]) != .VALID {
+    if sg.query_buffer_state(g.sprite_bind.vertex_buffers[0]) != .VALID {
         log.error("Failed to create vertex buffer")
         return
     }
     log.info("Created vertex buffer")
 
     // 3. Create a default white texture for solid colors
+    // TODO: make independent, used by both sprites and particles
     white_pixels := [4]u8{255, 255, 255, 255}  // RGBA white
     white_texture := sg.make_image({
         width = 1,
@@ -638,24 +653,24 @@ sprite_renderer_init :: proc() {
        log.error("Failed to create white texture")
        return
     }
-
+    // TODO: resman_set_texture
     g.resman.textures["white"] = white_texture
     log.info("Created white texture")
 
     // 4. Set up default bindings
-    g.bind.images[IMG_tex] = g.resman.textures["white"]
+    g.sprite_bind.images[IMG_tex] = g.resman.textures["white"]
 
-    g.bind.samplers[SMP_smp] = sg.make_sampler({
+    g.sprite_bind.samplers[SMP_smp] = sg.make_sampler({
         label = "sprite-sampler",
     })
-    if sg.query_sampler_state(g.bind.samplers[SMP_smp]) != .VALID {
+    if sg.query_sampler_state(g.sprite_bind.samplers[SMP_smp]) != .VALID {
         log.error("Failed to create sampler")
         return
     }
     log.info("Created sampler")
 
     // 6. Create shader
-    shader := sg.make_shader(game_shader_desc(sg.query_backend()))
+    shader := sg.make_shader(sprite_shader_desc(sg.query_backend()))
     if sg.query_shader_state(shader) != .VALID {
         log.error("Failed to create shader")
         return
@@ -663,12 +678,12 @@ sprite_renderer_init :: proc() {
     log.info("Created shader")
 
     // 6. Create the rendering pipeline
-    g.pip = sg.make_pipeline({
+    g.sprite_pip = sg.make_pipeline({
         shader = shader,
 		layout = {
 			attrs = {
-				ATTR_game_pos = { format = .FLOAT2 },
-				ATTR_game_texcoord0 = { format = .FLOAT2 },
+				ATTR_sprite_pos = { format = .FLOAT2 },
+				ATTR_sprite_texcoord0 = { format = .FLOAT2 },
 			}
 		},
         colors = {
@@ -684,7 +699,7 @@ sprite_renderer_init :: proc() {
         },
         label = "sprite-pipeline",
     })
-    if sg.query_pipeline_state(g.pip) != .VALID {
+    if sg.query_pipeline_state(g.sprite_pip) != .VALID {
         log.error("Failed to create pipeline")
         return
     }
@@ -1022,5 +1037,166 @@ ball_object_make :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_
         game_object = obj,
         stuck = true,
         radius = radius,
+    }
+}
+
+particle_generator_init :: proc(pg: ^Particle_Generator) {
+    // 1. Create the quad geometry (same as OpenGL version)
+    particle_quad := [?]f32 {
+        0.0, 1.0, 0.0, 1.0,
+        1.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+
+        0.0, 1.0, 0.0, 1.0,
+        1.0, 1.0, 1.0, 1.0,
+        1.0, 0.0, 1.0, 0.0
+    }
+
+    // 2. Create vertex buffer
+    g.particle_bind.vertex_buffers[0] = sg.make_buffer({
+      data = { ptr = &particle_quad, size = size_of(particle_quad) },
+      label = "particle-vertices",
+    })
+    if sg.query_buffer_state(g.particle_bind.vertex_buffers[0]) != .VALID {
+      log.error("Failed to create particles vertex buffer")
+      return
+    }
+    log.info("Created particle vertex buffer")
+
+    // 4. Set up default bindings
+        g.particle_bind.images[IMG_particle_tex] = g.resman.textures["white"]
+
+    g.particle_bind.samplers[SMP_particle_smp] = sg.make_sampler({
+      label = "particle-sampler",
+    })
+    if sg.query_sampler_state(g.particle_bind.samplers[SMP_particle_smp]) != .VALID {
+      log.error("Failed to create particle sampler")
+      return
+    }
+    log.info("Created particle sampler")
+
+    // 6. Create shader
+    shader := sg.make_shader(particle_shader_desc(sg.query_backend()))
+    if sg.query_shader_state(shader) != .VALID {
+      log.error("Failed to create particle shader")
+      return
+    }
+    log.info("Created particle shader")
+
+
+    // 6. Create the rendering pipeline
+    g.particle_pip = sg.make_pipeline({
+        shader = shader,
+        layout = {
+            attrs = {
+                    ATTR_particle_vertex = { format = .FLOAT4 },
+            }
+        },
+        colors = {
+              0 = {
+                  blend = {
+                      enabled = true,
+                      src_factor_rgb = .SRC_ALPHA,
+                      dst_factor_rgb = .ONE,
+                      src_factor_alpha = .SRC_ALPHA,
+                      dst_factor_alpha = .ONE,
+                  }
+              }
+        },
+        label = "particle-pipeline",
+    })
+    if sg.query_pipeline_state(g.particle_pip) != .VALID {
+      log.error("Failed to create particle pipeline")
+      return
+    }
+    log.info("Created particle pipeline")
+    log.info("Done initializing particle renderer")
+
+    particles: sa.Small_Array(MAX_PARTICLES, Particle)
+    particle := particle_make()
+    for i in 0..<MAX_PARTICLES {
+        sa.push(&particles, particle)
+    }
+    pg^ = Particle_Generator {
+        particles = particles,
+        max_particles = MAX_PARTICLES,
+    }
+
+}
+
+particle_generator_update :: proc(pg: ^Particle_Generator, dt: f32, object: Entity, n_new_particles: int, offset: Vec2 = {0,0}) {
+    // continuously generate particles
+    n_new_particles := 2
+    for i in 0..<n_new_particles {
+        unused_particle := particle_generator_first_unused_particle(pg)
+        particle_generator_respawn_particle(pg, sa.get_ptr(&pg.particles, unused_particle), object, offset)
+    }
+
+    for &p in sa.slice(&pg.particles) {
+        p.life -= dt
+        if p.life > 0 {
+            p.position -= p.velocity * dt
+            p.color.a -= dt * 2.5
+        }
+    }
+}
+
+particle_generator_first_unused_particle :: proc(pg: ^Particle_Generator) -> int {
+    for i in pg.last_used_particle..<sa.len(pg.particles) {
+        if sa.get(pg.particles, i).life <= 0 {
+            pg.last_used_particle = i
+            return i
+        }
+    }
+    for i in 0..<pg.last_used_particle {
+        if sa.get(pg.particles, i).life <= 0 {
+            pg.last_used_particle = i
+            return i
+        }
+    }
+    pg.last_used_particle = 0
+    return 0
+}
+
+particle_generator_respawn_particle :: proc(pg: ^Particle_Generator, particle: ^Particle, object: Entity, offset: Vec2 = {0,0}) {
+    rgn := rand.float32_range(-5, 5)
+    particle.position = object.position + rgn + offset
+
+    random_color := rand.float32_range(0.5, 1.0)
+    particle.color = {random_color, random_color, random_color, 1.0}
+
+    particle.life = 1
+    particle.velocity = object.velocity * 0.1
+}
+
+// TODO: set blend functions
+particle_generator_draw :: proc(pg: Particle_Generator) {
+    // gl.BlendFunc(gl.SRC_ALPHA, gl.ONE)
+    projection := compute_projection()
+    for i in 0..<sa.len(pg.particles) {
+        p := sa.get(pg.particles, i)
+        if p.life > 0 {
+            particle_vs_params := Particle_Vs_Params {
+                projection = projection,
+                offset = p.position,
+                color = p.color,
+            }
+
+            if texture, exists := resman_get_texture("particle"); exists {
+                g.particle_bind.images[IMG_particle_tex] = texture
+            } 
+
+            // TODO: should specify bind.vertex_buffers[1]??
+            sg.apply_bindings(g.particle_bind)
+            sg.apply_uniforms(UB_particle_vs_params, { ptr = &particle_vs_params, size = size_of(particle_vs_params) })
+            sg.draw(0, 6, 1)
+        }
+    }
+    // gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+}
+
+particle_make :: proc() -> Particle {
+    return {
+        color = {1,1,1,1}
     }
 }
