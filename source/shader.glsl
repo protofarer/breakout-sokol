@@ -26,18 +26,18 @@ void main() {
 
 @fs fs
 layout(binding=0) uniform texture2D tex;
-layout(binding=0) uniform sampler smp;
-// layout(binding=0) uniform vec3 sprite_color;
+layout(binding=1) uniform sampler smp;
+layout(binding=2) uniform fs_params{
+    vec3 sprite_color;
+};
 
-// in vec4 color;
 in vec2 uv;
 out vec4 frag_color;
 
 void main() {
     // frag_color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // frag_color = vec4(sprite_color) * texture(sampler2D(tex, smp), uv);
-    frag_color = texture(sampler2D(tex, smp), uv); //* color;
+    // frag_color = texture(sampler2D(tex, smp), uv) ; //* color;
+    frag_color = vec4(sprite_color, 1.0) * texture(sampler2D(tex, smp), uv);
 }
 @end
-
 @program game vs fs
