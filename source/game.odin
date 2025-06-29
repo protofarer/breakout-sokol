@@ -61,6 +61,7 @@ Game_Memory :: struct {
 
     ball_pg: Particle_Generator,
 
+    post_processor: Post_Processor,
 
     // shake_time: f32,
     // screen_width: u32,
@@ -183,6 +184,31 @@ Particle_Generator :: struct {
     last_used_particle: int,
 }
 
+Post_Processor :: struct {
+    // anti-aliasing via multisampled framebuffer
+    msaa_attachments: sg.Attachments,
+    msaa_color_img: sg.Image,
+    msaa_depth_img: sg.Image,
+
+    // Regular framebuffer with texture attachment
+    resolve_color_img: sg.Image,
+
+    // Postprocessing pipeline and bindings
+    pip: sg.Pipeline,
+    bind: sg.Bindings,
+
+    shake: bool,
+    confuse: bool,
+    chaos: bool,
+
+    shake_time: f32,
+
+    width, height: i32,
+
+    // cached uniform params
+    fs_params: Postprocess_Fs_Params,
+}
+
 g: ^Game_Memory
 
 @export
@@ -241,9 +267,12 @@ game_init :: proc() {
     sprite_renderer_init()
     log.info("Initialized sprite renderer")
 
-    // TODO: split out part_gen vs renderer (diff pg's can use same renderer)
+    // TODO: break out partcle_gen and renderer (diff pg's can use same renderer)
     particle_generator_init(&g.ball_pg)
     log.info("Initialized particle generator and particle renderer")
+
+    post_processor_init(&g.post_processor, i32(g.width), i32(g.height))
+    log.info("Initialized post processor")
 
     resman_load_texture("assets/background.jpg", "background")
     resman_load_texture("assets/block.png", "block")
@@ -297,14 +326,14 @@ update :: proc(dt: f32) {
     ball_move(dt, g.width)
     game_do_collisions()
     particle_generator_update(&g.ball_pg, dt, g.ball, 2, {g.ball.radius / 2, g.ball.radius / 2})
-    // powerups_update(dt)
+    powerups_update(dt)
 
-    // if g.shake_time > 0 {
-    //     g.shake_time -= dt
-    //     if g.shake_time <= 0 {
-    //         // effects.shake = false
-    //     }
-    // }
+    if g.post_processor.shake_time > 0 {
+        g.post_processor.shake_time -= dt
+        if g.post_processor.shake_time <= 0 {
+            g.post_processor.shake = false
+        }
+    }
     if g.ball.position.y >= f32(g.height) {
         g.lives -= 1
         if g.lives == 0 {
@@ -323,31 +352,79 @@ update :: proc(dt: f32) {
 }
 
 render :: proc(dt: f32) {
-	pass_action := sg.Pass_Action {
-		colors = {
-			0 = { load_action = .CLEAR, clear_value = { 0.5, 0.2, 0.5, 1 } },
-		},
-	}
+    if g.state == .Active {
+        // Render scene to MSAA fb
+        pass_action := sg.Pass_Action {
+            colors = {
+                0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 } },
+            }
+        }
+        
+        // render pass with MSAA attachments
+        sg.begin_pass({
+            action = pass_action,
+            attachments = g.post_processor.msaa_attachments,
+        })
 
-    // TODO: post processing effects
+        // render as normal
+        sg.apply_pipeline(g.sprite_pip)
+        draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
+        game_level_draw(&g.levels[g.level])
+        entity_draw(g.player)
+        for p in g.powerups {
+            if !p.destroyed {
+                game_object_draw(p)
+            }
+        }
+        game_object_draw(g.ball.game_object)
 
-	sg.begin_pass({ action = pass_action, swapchain = sglue.swapchain() })
+        sg.apply_pipeline(g.particle_pip)
+        particle_generator_draw(g.ball_pg)
+
+        // automatically resolves MSAA to resolve_color_img
+        sg.end_pass()
+
+        // render postprocessed fullscreen quad to swapchain
+        sg.begin_pass({
+            action = {},
+            swapchain = sglue.swapchain(),
+        })
+
+        sg.apply_pipeline(g.post_processor.pip)
+        sg.apply_bindings(g.post_processor.bind)
+
+        // update and apply uniforms
+        post_processor_apply_uniforms(&g.post_processor, dt)
+
+        sg.draw(0, 4, 1)
+        sg.end_pass()
+
+    } else {
+        pass_action := sg.Pass_Action {
+            colors = {
+                0 = { load_action = .CLEAR, clear_value = { 0.5, 0.2, 0.5, 1 } },
+            },
+        }
+
+        sg.begin_pass({ action = pass_action, swapchain = sglue.swapchain() })
         // Sprites
         sg.apply_pipeline(g.sprite_pip)
         draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
         game_level_draw(&g.levels[g.level])
         entity_draw(g.player)
-        // for p in g.powerups {
-        //     if !p.destroyed {
-        //         game_object_draw(p)
-        //     }
-        // }
+        for p in g.powerups {
+            if !p.destroyed {
+                game_object_draw(p)
+            }
+        }
         game_object_draw(g.ball.game_object)
 
         sg.apply_pipeline(g.particle_pip)
         particle_generator_draw(g.ball_pg)
-	sg.end_pass()
-	sg.commit()
+        sg.end_pass()
+    }
+    sg.commit()
+
 
     // TODO: render text 
 
@@ -466,6 +543,14 @@ game_cleanup :: proc() {
 	sg.destroy_pipeline(g.sprite_pip)
 	sg.destroy_buffer(g.particle_bind.vertex_buffers[0])
 	sg.destroy_pipeline(g.particle_pip)
+
+    sg.destroy_image(g.post_processor.msaa_color_img)
+    sg.destroy_image(g.post_processor.msaa_depth_img)
+    sg.destroy_image(g.post_processor.resolve_color_img)
+    sg.destroy_attachments(g.post_processor.msaa_attachments)
+    sg.destroy_buffer(g.post_processor.bind.vertex_buffers[0])
+    sg.destroy_pipeline(g.post_processor.pip)
+
     delete(g.resman.textures)
 	free(g)
 }
@@ -782,11 +867,11 @@ game_do_collisions :: proc() {
             if collision.collided {
                 if !box.is_solid {
                     box.destroyed = true
-                    // powerups_spawn(box)
+                    powerups_spawn(box)
                     // play_sound("hit-nonsolid")
                 } else {
-                    // g.shake_time = 0.1
-                    // effects.shake = true
+                    g.post_processor.shake_time = 0.1
+                    g.post_processor.shake = true
                     // play_sound("hit-solid")
                 }
                 if !(g.ball.passthrough && !box.is_solid) {
@@ -814,18 +899,18 @@ game_do_collisions :: proc() {
             }
         }
     }
-    // for &p in g.powerups {
-    //     if !p.destroyed {
-    //         if p.position.y >= f32(g.height) {
-    //             p.destroyed = true
-    //         }
-    //         if check_collision(g.player, p) {
-    //             powerup_activate(&p)
-    //             p.destroyed = true
-    //             play_sound("get-powerup")
-    //         }
-    //     }
-    // }
+    for &p in g.powerups {
+        if !p.destroyed {
+            if p.position.y >= f32(g.height) {
+                p.destroyed = true
+            }
+            if check_collision(g.player, p) {
+                powerup_activate(&p)
+                p.destroyed = true
+                // play_sound("get-powerup")
+            }
+        }
+    }
 
     collision := check_ball_box_collision(g.ball, g.player)
     if !g.ball.stuck && collision.collided {
@@ -1200,3 +1285,285 @@ particle_make :: proc() -> Particle {
         color = {1,1,1,1}
     }
 }
+
+post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
+    pp.width = width
+    pp.height = height
+
+    // ms color attach
+    pp.msaa_color_img = sg.make_image({
+        usage = {
+            render_attachment = true,
+        },
+        width = width,
+        height = height,
+        pixel_format = .RGBA8,
+        sample_count = 4, // 4x MSAA
+        label = "msaa-color",
+    })
+
+    // resolve target (receive msaa resolved image)
+    pp.resolve_color_img = sg.make_image({
+        usage = {
+            render_attachment = true,
+        },
+        width = width,
+        height = height,
+        pixel_format = .RGBA8,
+        sample_count = 1,
+        label = "resolve-color",
+    })
+
+    pp.msaa_depth_img = sg.make_image({
+        usage = {
+            render_attachment = true,
+        },
+        width = width,
+        height = height,
+        pixel_format = .DEPTH_STENCIL,
+        sample_count = 4, // 4x MSAA
+        label = "msaa-depth",
+
+    })
+
+    // attachments obj with msaa resolve
+    pp.msaa_attachments = sg.make_attachments({
+        colors = {
+            0 = { image = pp.msaa_color_img },
+        },
+        resolves = {
+            0 = { image = pp.resolve_color_img }, // triggers msaa resolve
+        },
+        depth_stencil = { image = pp.msaa_depth_img },
+        label = "msaa-attachments",
+    })
+
+    // quad
+    vertices := [?]f32{
+        // pos      // tex
+        -1, -1,     0, 0,
+         1, -1,     1, 0,
+        -1,  1,     0, 1,
+         1,  1,     1, 1,
+    }
+
+    pp.bind.vertex_buffers[0] = sg.make_buffer({
+        data = { ptr = &vertices, size = size_of(vertices) },
+        label = "post-vertices",
+    })
+
+    pp.bind.images[IMG_scene_tex] = pp.resolve_color_img
+    pp.bind.samplers[SMP_scene_smp] = sg.make_sampler({
+        wrap_u = .REPEAT,
+        wrap_v = .REPEAT,
+        label = "post-sampler",
+    })
+
+    shader := sg.make_shader(postprocess_shader_desc(sg.query_backend()))
+
+    pp.pip = sg.make_pipeline({
+        shader = shader,
+        layout = {
+            attrs = {
+                ATTR_postprocess_vertex = { format = .FLOAT4 }
+            },
+        },
+        primitive_type = .TRIANGLE_STRIP,
+        label = "post-pipeline",
+    })
+
+    pp.fs_params = init_postprocess_params()
+}
+
+
+init_postprocess_params :: proc() -> Postprocess_Fs_Params {
+    params: Postprocess_Fs_Params
+
+    offset: f32 = 1.0 / 300.0
+        params.offsets = {
+        {-offset,  offset, 0, 0},  // top-left
+        { 0.0,     offset, 0, 0},  // top-center
+        { offset,  offset, 0, 0},  // top-right
+        {-offset,  0.0, 0, 0},     // center-left
+        { 0.0,     0.0, 0, 0},     // center-center
+        { offset,  0.0, 0, 0},     // center-right
+        {-offset, -offset, 0, 0},  // bottom-left
+        { 0.0,    -offset, 0, 0},  // bottom-center
+        { offset, -offset, 0, 0},  // bottom-right
+    }
+
+    // Edge detection kernel
+    params.edge_kernel = {
+        {-1, -1, -1, 0},
+        {-1,  8, -1, 0},
+        {-1, -1, -1, 0},
+    }
+
+    // Blur kernel (normalized)
+    params.blur_kernel = {
+        {1.0/16, 2.0/16, 1.0/16, 0},
+        {2.0/16, 4.0/16, 2.0/16, 0},
+        {1.0/16, 2.0/16, 1.0/16, 0},
+    }
+
+    return params
+}
+
+post_processor_apply_uniforms :: proc(pp: ^Post_Processor, dt: f32) {
+    vs_params := Postprocess_Vs_Params{
+        time = f32(sapp.frame_count()) * dt,
+        chaos = i32(pp.chaos),
+        confuse = i32(pp.confuse),
+        shake = i32(pp.shake),
+    }
+    sg.apply_uniforms(UB_postprocess_vs_params, {
+        ptr = &vs_params,
+        size = size_of(vs_params)
+    })
+
+    // frag shader unforms (with cached params)
+    pp.fs_params.chaos = i32(pp.chaos)
+    pp.fs_params.confuse = i32(pp.chaos)
+    pp.fs_params.shake = i32(pp.shake)
+    sg.apply_uniforms(UB_postprocess_fs_params, {
+        ptr = &pp.fs_params,
+        size = size_of(pp.fs_params),
+    })
+}
+
+powerup_make :: proc(type: Powerup_Type, color: Vec3, duration: f32, position: Vec2, texture_name: string) -> Powerup_Object {
+    o: Entity
+    entity_init(
+        &o, 
+        position = position, 
+        size = POWERUP_SIZE, 
+        color = color, 
+        velocity = POWERUP_VELOCITY,
+        texture_name = texture_name
+    )
+    return {
+        position = o.position,
+        size = o.size, 
+        velocity = o.velocity,
+        color = o.color,
+        rotation = o.rotation,
+        is_solid = o.is_solid,
+        destroyed = o.destroyed,
+        texture_name = o.texture_name,
+
+        type = type,
+        duration = duration,
+        activated = false,
+    }
+}
+
+should_spawn :: proc(chance: u32) -> bool {
+    chance := 1 / f32(chance)
+    rgn := rand.float32()
+    return rgn < chance
+}
+
+powerups_spawn :: proc(block: Entity) {
+    if should_spawn(75) { // 1 in 75 chance
+        p := powerup_make(.Speed, {0.5,0.5,1.0}, 0, block.position, "speed")
+        append(&g.powerups, p)
+    }
+    if should_spawn(75) {
+        p := powerup_make(.Sticky, {1,0.5,1.0}, 5, block.position, "sticky")
+        append(&g.powerups, p)
+    }
+    if should_spawn(75) {
+        p := powerup_make(.Passthrough, {0.5,1.0,0.5}, 10, block.position, "passthrough")
+        append(&g.powerups, p)
+    }
+    if should_spawn(75) {
+        p := powerup_make(.Padsize_Increase, {1.0,0.6,0.4}, 0, block.position, "size")
+        append(&g.powerups, p)
+    }
+    if should_spawn(15) {
+        p := powerup_make(.Confuse, {1.0,0.3,0.3}, 15, block.position, "confuse")
+        append(&g.powerups, p)
+    }
+    if should_spawn(15) {
+        p := powerup_make(.Chaos, {0.9,0.25,0.25}, 15, block.position, "chaos")
+        append(&g.powerups, p)
+    }
+}
+
+powerup_activate :: proc(p: ^Powerup_Object) {
+    p.activated = true
+    switch p.type {
+    case .Speed:
+        g.ball.velocity *= 1.2
+    case .Sticky:
+        g.ball.sticky = true
+        g.player.color = {1,0.5,1}
+    case .Passthrough:
+        g.ball.passthrough = true
+        g.ball.color = {1,0.5,0.5}
+    case .Padsize_Increase:
+        g.player.size.x += 50
+    case .Confuse:
+        if !g.post_processor.chaos {
+            g.post_processor.confuse = true
+        }
+    case .Chaos:
+        if !g.post_processor.confuse {
+            g.post_processor.chaos = true
+        }
+    }
+}
+
+powerups_update :: proc(dt: f32) {
+    for &p in g.powerups {
+        p.position += p.velocity * dt
+
+        if p.activated {
+            p.duration -= dt
+
+            if p.duration <= 0 {
+                p.activated = false
+
+                if p.type == .Sticky {
+                    if !is_other_powerup_active(.Sticky) {
+                        g.ball.sticky = false
+                        g.player.color = {1,1,1}
+                    }
+                } else if p.type == .Passthrough {
+                    if !is_other_powerup_active(.Passthrough) {
+                        g.ball.passthrough = false
+                        g.ball.color = {1,1,1}
+                    }
+                } else if p.type == .Confuse {
+                    if !is_other_powerup_active(.Confuse) {
+                        g.post_processor.confuse = false
+                    }
+                } else if p.type == .Chaos {
+                    if !is_other_powerup_active(.Chaos) {
+                        g.post_processor.chaos = false
+                    }
+                }
+            }
+        }
+    }
+    indices_to_remove: [dynamic]int
+    defer delete(indices_to_remove)
+    for p, i in g.powerups {
+        if p.destroyed && !p.activated {
+            append(&indices_to_remove, i)
+        }
+    }
+    for idx in indices_to_remove {
+        unordered_remove(&g.powerups, idx)
+    }
+}
+
+is_other_powerup_active :: proc(type: Powerup_Type) -> bool {
+    for p in g.powerups {
+        if p.activated && p.type == type {
+            return true
+        }
+    }
+    return false
+}
+
