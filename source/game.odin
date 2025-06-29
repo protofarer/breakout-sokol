@@ -11,6 +11,7 @@ import "core:os"
 import "core:math/rand"
 import sa "core:container/small_array"
 import stbi "vendor:stb/image"
+import ma "vendor:miniaudio"
 import sapp "sokol/app"
 import sg "sokol/gfx"
 import sglue "sokol/glue"
@@ -25,7 +26,7 @@ LOGICAL_H :: 1080
 PLAYER_SIZE :: Vec2{150, 30}
 PLAYER_VELOCITY :: 1000
 
-BALL_RADIUS :: 12.5
+BALL_RADIUS :: 16
 BALL_INITIAL_VELOCITY :: Vec2{200, -700}
 
 MAX_PARTICLES :: 500
@@ -62,6 +63,8 @@ Game_Memory :: struct {
     ball_pg: Particle_Generator,
 
     post_processor: Post_Processor,
+
+    audio_engine: ma.engine,
 
     // shake_time: f32,
     // screen_width: u32,
@@ -154,7 +157,7 @@ Vertex :: struct {
 
 Resource_Manager :: struct {
     textures: map[string]sg.Image,
-    // sounds: map[string]^ma.sound,
+    sounds: map[string]^ma.sound,
 }
 
 Collision_Data :: struct {
@@ -288,6 +291,17 @@ game_init :: proc() {
     resman_load_texture("assets/powerup_sticky.png", "sticky")
     log.info("Finished loading textures")
 
+    result := ma.engine_init(nil, &g.audio_engine)
+    if result != ma.result.SUCCESS {
+        log.error("Failed to initialize audio engine")
+    }
+
+    resman_load_sound("assets/music.mp3", "music")
+    resman_load_sound("assets/bleep.mp3", "hit-nonsolid")
+    resman_load_sound("assets/solid.wav", "hit-solid")
+    resman_load_sound("assets/powerup.wav", "get-powerup")
+    resman_load_sound("assets/bleep.wav", "hit-paddle")
+
     one, two, three, four: Game_Level
     game_level_load(&one, "assets/one.lvl", u32(g.width), u32(g.height) / 2)
     game_level_load(&two, "assets/two.lvl", u32(g.width), u32(g.height) / 2)
@@ -307,7 +321,7 @@ game_init :: proc() {
     ball_pos := player_pos + Vec2{f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, -BALL_RADIUS * 2}
     g.ball = ball_object_make(ball_pos, BALL_RADIUS, BALL_INITIAL_VELOCITY)
 
-    // play_sound("music")
+    play_sound("music")
 
     log.info("## END Game Init###")
 }
@@ -552,6 +566,11 @@ game_cleanup :: proc() {
     sg.destroy_pipeline(g.post_processor.pip)
 
     delete(g.resman.textures)
+
+    for key, &val in g.resman.sounds {
+        ma.sound_uninit(val)
+    }
+
 	free(g)
 }
 
@@ -619,6 +638,7 @@ read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32, i32) {
 
 resman_init :: proc() {
     g.resman.textures = make(map[string]sg.Image)
+    g.resman.sounds = make(map[string]^ma.sound)
 }
 
 resman_load_texture :: proc(path: string, name: string) -> sg.Image {
@@ -868,11 +888,11 @@ game_do_collisions :: proc() {
                 if !box.is_solid {
                     box.destroyed = true
                     powerups_spawn(box)
-                    // play_sound("hit-nonsolid")
+                    play_sound("hit-nonsolid")
                 } else {
                     g.post_processor.shake_time = 0.1
                     g.post_processor.shake = true
-                    // play_sound("hit-solid")
+                    play_sound("hit-solid")
                 }
                 if !(g.ball.passthrough && !box.is_solid) {
                     dir := collision.direction
@@ -907,7 +927,7 @@ game_do_collisions :: proc() {
             if check_collision(g.player, p) {
                 powerup_activate(&p)
                 p.destroyed = true
-                // play_sound("get-powerup")
+                play_sound("get-powerup")
             }
         }
     }
@@ -923,7 +943,7 @@ game_do_collisions :: proc() {
         g.ball.velocity.y = -1 * abs(g.ball.velocity.y)
         g.ball.velocity = linalg.normalize0(g.ball.velocity) * speed
         g.ball.stuck = g.ball.sticky
-        // play_sound("hit-paddle")
+        play_sound("hit-paddle")
     }
 }
 
@@ -1567,3 +1587,36 @@ is_other_powerup_active :: proc(type: Powerup_Type) -> bool {
     return false
 }
 
+resman_load_sound :: proc(file: string, name: string) -> ^ma.sound {
+    sound := new(ma.sound)
+
+    file_cstring := strings.clone_to_cstring(file)
+    result := ma.sound_init_from_file(&g.audio_engine, file_cstring, nil, nil, nil, sound)
+    delete(file_cstring)
+
+    if result != ma.result.SUCCESS {
+        log.error("Failed to load sound:", file)
+        free(sound)
+        return nil
+    } 
+
+    log.info("Load sound, file:", file, "name:", name)
+    g.resman.sounds[name] = sound
+    return g.resman.sounds[name]
+}
+
+play_sound :: proc(name: string, loop: b32 = false) {
+    if sound, exists := g.resman.sounds[name]; exists {
+        ma.sound_set_looping(sound, loop)
+        ma.sound_seek_to_pcm_frame(sound, 0)
+        ma.sound_start(sound)
+    } else {
+        log.error("Failed to play sound:", name)
+    }
+}
+
+resman_get_sound :: proc(name: string) -> ^ma.sound {
+    sound, exists := g.resman.sounds[name]; 
+    if !exists do log.error("Failed to get sound:", name)
+    return sound
+}
