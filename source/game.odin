@@ -39,10 +39,6 @@ Vec4 :: [4]f32
 Mat4 :: matrix[4,4]f32
 
 Game_Memory :: struct {
-    sprite_renderer: Sprite_Renderer,
-    particle_pip: sg.Pipeline,
-    particle_bind: sg.Bindings,
-
 	width: u32,
 	height: u32,
 	state: Game_State,
@@ -52,20 +48,21 @@ Game_Memory :: struct {
 	player: Entity,
     ball: Ball_Object,
 
-    resman: ^Resource_Manager,
-
     levels: [dynamic]Game_Level,
     level: u32,
     powerups: [dynamic]Powerup_Object,
     lives: i32,
 
-    ball_pg: Particle_Generator,
 
-    post_processor: Post_Processor,
-
+    resman: ^Resource_Manager,
     audio_engine: ma.engine,
 
+    sprite_renderer: Sprite_Renderer,
+    particle_renderer: Particle_Renderer,
+    post_processor: Post_Processor,
     text_renderer: Text_Renderer,
+
+    ball_pg: Particle_Generator,
 
     screen_width: u32,
     screen_height: u32,
@@ -192,6 +189,12 @@ Particle_Generator :: struct {
     last_used_particle: int,
 }
 
+Particle_Renderer :: struct {
+    bind: sg.Bindings,
+    pip: sg.Pipeline,
+    projection: matrix[4,4]f32,
+}
+
 Post_Processor :: struct {
     // anti-aliasing via multisampled framebuffer
     msaa_attachments: sg.Attachments,
@@ -273,6 +276,8 @@ game_init :: proc() {
 
     sprite_renderer_init(&g.sprite_renderer)
     log.info("Initialized sprite renderer")
+
+    particle_renderer_init(&g.particle_renderer)
 
     // TODO: break out partcle_gen and renderer (diff pg's can use same renderer)
     particle_generator_init(&g.ball_pg)
@@ -394,8 +399,8 @@ render :: proc(dt: f32) {
     game_object_draw(g.ball.game_object)
 
     // Particles
-    sg.apply_pipeline(g.particle_pip)
-    particle_generator_draw(g.ball_pg)
+    sg.apply_pipeline(g.particle_renderer.pip)
+    particle_generator_draw(&g.particle_renderer, g.ball_pg)
 
     // Text
     lives_text := fmt.tprintf("Lives: %v", g.lives)
@@ -541,8 +546,8 @@ game_cleanup :: proc() {
 	sg.shutdown()
 	sg.destroy_buffer(g.sprite_renderer.bind.vertex_buffers[0])
 	sg.destroy_pipeline(g.sprite_renderer.pip)
-	sg.destroy_buffer(g.particle_bind.vertex_buffers[0])
-	sg.destroy_pipeline(g.particle_pip)
+	sg.destroy_buffer(g.particle_renderer.bind.vertex_buffers[0])
+	sg.destroy_pipeline(g.particle_renderer.pip)
 
     sg.destroy_image(g.post_processor.msaa_color_img)
     sg.destroy_image(g.post_processor.msaa_depth_img)
@@ -1120,7 +1125,9 @@ ball_object_make :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_
     }
 }
 
-particle_generator_init :: proc(pg: ^Particle_Generator) {
+particle_renderer_init :: proc(pr: ^Particle_Renderer) {
+    pr.projection = compute_projection()
+
     // 1. Create the quad geometry (same as OpenGL version)
     particle_quad := [?]f32 {
         0.0, 1.0, 0.0, 1.0,
@@ -1133,23 +1140,25 @@ particle_generator_init :: proc(pg: ^Particle_Generator) {
     }
 
     // 2. Create vertex buffer
-    g.particle_bind.vertex_buffers[0] = sg.make_buffer({
+    pr.bind.vertex_buffers[0] = sg.make_buffer({
       data = { ptr = &particle_quad, size = size_of(particle_quad) },
       label = "particle-vertices",
     })
-    if sg.query_buffer_state(g.particle_bind.vertex_buffers[0]) != .VALID {
+    if sg.query_buffer_state(pr.bind.vertex_buffers[0]) != .VALID {
       log.error("Failed to create particles vertex buffer")
       return
     }
     log.info("Created particle vertex buffer")
 
     // 4. Set up default bindings
-        g.particle_bind.images[IMG_particle_tex] = g.resman.textures["white"]
+    if tex, ok_white_tex := resman_get_texture("white"); ok_white_tex {
+        pr.bind.images[IMG_particle_tex] = tex
+    }
 
-    g.particle_bind.samplers[SMP_particle_smp] = sg.make_sampler({
+    pr.bind.samplers[SMP_particle_smp] = sg.make_sampler({
       label = "particle-sampler",
     })
-    if sg.query_sampler_state(g.particle_bind.samplers[SMP_particle_smp]) != .VALID {
+    if sg.query_sampler_state(g.particle_renderer.bind.samplers[SMP_particle_smp]) != .VALID {
       log.error("Failed to create particle sampler")
       return
     }
@@ -1163,9 +1172,8 @@ particle_generator_init :: proc(pg: ^Particle_Generator) {
     }
     log.info("Created particle shader")
 
-
     // 6. Create the rendering pipeline
-    g.particle_pip = sg.make_pipeline({
+    pr.pip = sg.make_pipeline({
         shader = shader,
         layout = {
             attrs = {
@@ -1185,13 +1193,15 @@ particle_generator_init :: proc(pg: ^Particle_Generator) {
         },
         label = "particle-pipeline",
     })
-    if sg.query_pipeline_state(g.particle_pip) != .VALID {
+    if sg.query_pipeline_state(g.particle_renderer.pip) != .VALID {
       log.error("Failed to create particle pipeline")
       return
     }
     log.info("Created particle pipeline")
     log.info("Done initializing particle renderer")
+}
 
+particle_generator_init :: proc(pg: ^Particle_Generator) {
     particles: sa.Small_Array(MAX_PARTICLES, Particle)
     particle := particle_make()
     for i in 0..<MAX_PARTICLES {
@@ -1249,8 +1259,9 @@ particle_generator_respawn_particle :: proc(pg: ^Particle_Generator, particle: ^
     particle.velocity = object.velocity * 0.1
 }
 
-particle_generator_draw :: proc(pg: Particle_Generator) {
-    projection := compute_projection()
+particle_generator_draw :: proc(pr: ^Particle_Renderer, pg: Particle_Generator) {
+    projection := pr.projection
+
     for i in 0..<sa.len(pg.particles) {
         p := sa.get(pg.particles, i)
         if p.life > 0 {
@@ -1260,11 +1271,11 @@ particle_generator_draw :: proc(pg: Particle_Generator) {
                 color = p.color,
             }
 
-            if texture, exists := resman_get_texture("particle"); exists {
-                g.particle_bind.images[IMG_particle_tex] = texture
+            if tex, exists := resman_get_texture("particle"); exists {
+                pr.bind.images[IMG_particle_tex] = tex
             } 
 
-            sg.apply_bindings(g.particle_bind)
+            sg.apply_bindings(pr.bind)
             sg.apply_uniforms(UB_particle_vs_params, { ptr = &particle_vs_params, size = size_of(particle_vs_params) })
             sg.draw(0, 6, 1)
         }
