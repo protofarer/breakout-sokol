@@ -69,13 +69,12 @@ Game_Memory :: struct {
 
     text_renderer: Text_Renderer,
 
-    // shake_time: f32,
-    // screen_width: u32,
-    // screen_height: u32,
-    // viewport_x: i32,
-    // viewport_y: i32,
-    // viewport_width: i32,
-    // viewport_height: i32,
+    screen_width: u32,
+    screen_height: u32,
+    viewport_x: i32,
+    viewport_y: i32,
+    viewport_width: i32,
+    viewport_height: i32,
 }
 
 Game_State :: enum {
@@ -254,17 +253,16 @@ game_init :: proc() {
         return
     }
 
-	g.state = .Active
+	g.state = .Menu
 	g.width = LOGICAL_W
 	g.height = LOGICAL_H
-    // g.screen_width = LOGICAL_W
-    // g.screen_height = LOGICAL_H
-    // g.viewport_width = LOGICAL_W
-    // g.viewport_height = LOGICAL_H
+    g.screen_width = LOGICAL_W
+    g.screen_height = LOGICAL_H
+    g.viewport_width = LOGICAL_W
+    g.viewport_height = LOGICAL_H
     g.lives = 3
 
-    // TODO: letterboxing
-    // update_viewport_and_projection(LOGICAL_W, LOGICAL_H)
+    update_viewport_and_projection(u32(sapp.width()), u32(sapp.height()))
 
     g.resman = new(Resource_Manager)
     resman_init()
@@ -365,114 +363,79 @@ update :: proc(dt: f32) {
     if g.state == .Active && game_is_completed(g.levels[g.level]) {
         game_reset_level()
         reset_player()
-        // effects.chaos = true
+        g.post_processor.chaos = true
         g.state = .Win
     }
 }
 
 render :: proc(dt: f32) {
-    if g.state == .Active {
-        // Render scene to MSAA fb
-        pass_action := sg.Pass_Action {
-            colors = {
-                0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 } },
-            }
+    msaa_pass_action := sg.Pass_Action {
+        colors = { 0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 }}},
+    }
+    // Render scene to MSAA fb
+    sg.begin_pass({ 
+        action = msaa_pass_action, attachments = g.post_processor.msaa_attachments 
+    })
+    sg.apply_viewport(0, 0, i32(g.width), i32(g.height), true)
+
+    // Sprites
+    sg.apply_pipeline(g.sprite_pip)
+    draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
+    game_level_draw(&g.levels[g.level])
+    entity_draw(g.player)
+    for p in g.powerups {
+        if !p.destroyed {
+            game_object_draw(p)
         }
-        
-        // render pass with MSAA attachments
-        sg.begin_pass({
-            action = pass_action,
-            attachments = g.post_processor.msaa_attachments,
-        })
+    }
+    game_object_draw(g.ball.game_object)
 
-        // Sprites
-        sg.apply_pipeline(g.sprite_pip)
-        draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
-        game_level_draw(&g.levels[g.level])
-        entity_draw(g.player)
-        for p in g.powerups {
-            if !p.destroyed {
-                game_object_draw(p)
-            }
-        }
-        game_object_draw(g.ball.game_object)
+    // Particles
+    sg.apply_pipeline(g.particle_pip)
+    particle_generator_draw(g.ball_pg)
 
-        // Particles
-        sg.apply_pipeline(g.particle_pip)
-        particle_generator_draw(g.ball_pg)
+    // Text
+    lives_text := fmt.tprintf("Lives: %v", g.lives)
+    text_draw(&g.text_renderer, lives_text, 50, 50, {1, 1, 1})
 
-        lives_text := fmt.tprintf("Lives: %v", g.lives)
-        text_draw(&g.text_renderer, lives_text, 50, 50, {1, 1, 1})
+    // Menu text
+    if g.state == .Menu {
+        text_draw_centered(&g.text_renderer, "BREAKOUT", 
+            f32(g.width)/2, f32(g.height)/2 - 50, {1, 1, 1})
+        text_draw_centered(&g.text_renderer, "Press ENTER to start", 
+            f32(g.width)/2, f32(g.height)/2, {0.8, 0.8, 0.8})
+        text_draw_centered(&g.text_renderer, "Press W or S to select level", 
+            f32(g.width)/2, f32(g.height)/2 + 30, {0.6, 0.6, 0.6})
+        text_draw_centered(&g.text_renderer, "A/D to move paddle", 
+            f32(g.width)/2, f32(g.height)/2 + 60, {0.6, 0.6, 0.6})
+    }
+    // Win text
+    if g.state == .Win {
+        text_draw_centered(&g.text_renderer, "YOU WIN!!!", 
+            f32(g.width)/2, f32(g.height)/2, {0, 1, 0})
+        text_draw_centered(&g.text_renderer, "Press ENTER to retry or ESC to quit", 
+            f32(g.width)/2, f32(g.height)/2 + 50, {1, 1, 0})
+    }
 
-        text_renderer_flush(&g.text_renderer)
+    text_renderer_flush(&g.text_renderer)
 
-        // automatically resolves MSAA to resolve_color_img
-        sg.end_pass()
+    sg.end_pass()
 
-        // render postprocessed fullscreen quad to swapchain
-        sg.begin_pass({
-            action = {},
-            swapchain = sglue.swapchain(),
-        })
-
+    // render postprocessed fullscreen quad to swapchain
+    fullscreen_pass_action := sg.Pass_Action {
+        colors = { 0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 }}}
+    }
+    sg.begin_pass({ action = fullscreen_pass_action, swapchain = sglue.swapchain() })
+        sg.apply_viewport(g.viewport_x, g.viewport_y, g.viewport_width, g.viewport_height, true)
         sg.apply_pipeline(g.post_processor.pip)
         sg.apply_bindings(g.post_processor.bind)
-
-        // update and apply uniforms
         post_processor_apply_uniforms(&g.post_processor, dt)
-
         sg.draw(0, 4, 1)
-        sg.end_pass()
-
-    } else {
-        pass_action := sg.Pass_Action {
-            colors = {
-                0 = { load_action = .CLEAR, clear_value = { 0.5, 0.2, 0.5, 1 } },
-            },
-        }
-
-        sg.begin_pass({ action = pass_action, swapchain = sglue.swapchain() })
-        // Sprites
-        sg.apply_pipeline(g.sprite_pip)
-        draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
-        game_level_draw(&g.levels[g.level])
-        entity_draw(g.player)
-        for p in g.powerups {
-            if !p.destroyed {
-                game_object_draw(p)
-            }
-        }
-        game_object_draw(g.ball.game_object)
-
-        sg.apply_pipeline(g.particle_pip)
-        particle_generator_draw(g.ball_pg)
-
-        // Menu text
-        if g.state == .Menu {
-            text_draw_centered(&g.text_renderer, "BREAKOUT", 
-                f32(g.width)/2, f32(g.height)/2 - 50, {1, 1, 1})
-            text_draw_centered(&g.text_renderer, "Press ENTER to start", 
-                f32(g.width)/2, f32(g.height)/2, {0.8, 0.8, 0.8})
-            text_draw_centered(&g.text_renderer, "Press W or S to select level", 
-                f32(g.width)/2, f32(g.height)/2 + 30, {0.6, 0.6, 0.6})
-            text_draw_centered(&g.text_renderer, "A/D to move paddle", 
-                f32(g.width)/2, f32(g.height)/2 + 60, {0.6, 0.6, 0.6})
-        }
-        // Win screen
-        if g.state == .Win {
-            text_draw_centered(&g.text_renderer, "YOU WIN!!!", 
-                f32(g.width)/2, f32(g.height)/2, {0, 1, 0})
-            text_draw_centered(&g.text_renderer, "Press ENTER to retry or ESC to quit", 
-                f32(g.width)/2, f32(g.height)/2 + 50, {1, 1, 0})
-        }
-
-        sg.end_pass()
-    }
+    sg.end_pass()
     sg.commit()
 }
 
-// 2D
-// rotation in degrees
+// 2D, rotation in degrees
 compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4 {
 	proj := compute_projection()
     model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
@@ -505,9 +468,27 @@ game_event :: proc(e: ^sapp.Event) {
         g.keys[e.key_code] = false
         g.keys_processed[e.key_code] = false
 	}
+    if e.type == .RESIZED {
+        update_viewport_and_projection(u32(e.framebuffer_width), u32(e.framebuffer_height))
+    }
 }
 
 process_input :: proc(dt: f32) {
+    if g.state == .Menu {
+        if g.keys[.ENTER] && !g.keys_processed[.ENTER]{
+            g.keys_processed[.ENTER] = true
+            g.state = .Active
+        }
+        if g.keys[.W] && !g.keys_processed[.W] {
+            g.keys_processed[.W] = true
+            g.level = (g.level + 1) % 4
+        }
+        if g.keys[.S] && !g.keys_processed[.S] {
+            g.keys_processed[.S] = true
+            g.level = (g.level - 1) % 4
+        }
+    }
+
     if g.state == .Active {
         dx := PLAYER_VELOCITY * dt
         if g.keys[.A] {
@@ -529,38 +510,27 @@ process_input :: proc(dt: f32) {
         if g.keys[.SPACE] {
             g.ball.stuck = false
         }
+
+        // for debug
         if g.keys[.R] {
 				// win state
 				reset_player()
 				game_reset_level()
-				// effects.chaos = true
-				// g.state = .Win
+				g.post_processor.chaos = true
+				g.state = .Win
                 g.state = .Active
         }
+
         g.player.position.x = clamp(g.player.position.x, 0, f32(g.width) - g.player.size.x)
     }
-    // if game.state == .Menu {
-    //     if game.keys[glfw.KEY_ENTER] && !game.keys_processed[glfw.KEY_ENTER]{
-    //         game.keys_processed[glfw.KEY_ENTER] = true
-    //         game.state = .Active
-    //     }
-    //     if game.keys[glfw.KEY_W] && !game.keys_processed[glfw.KEY_W] {
-    //         game.keys_processed[glfw.KEY_W] = true
-    //         game.level = (game.level + 1) % 4
-    //     }
-    //     if game.keys[glfw.KEY_S] && !game.keys_processed[glfw.KEY_S] {
-    //         game.keys_processed[glfw.KEY_S] = true
-    //         game.level = (game.level - 1) % 4
-    //     }
-    // }
-    // if g.state == .Win {
-    //     if g.keys[glfw.KEY_ENTER] {
-    //         // g.keys_processed[glfw.KEY_ENTER] = true // NOTE: is this needed?
-    //         effects.chaos = false
-    //         g.state = .Menu
-    //     }
-    // }
 
+    if g.state == .Win {
+        if g.keys[.ENTER] {
+            // g.keys_processed[glfw.KEY_ENTER] = true // NOTE: is this needed?
+            g.post_processor.chaos = false
+            g.state = .Menu
+        }
+    }
 }
 
 @export
@@ -616,8 +586,8 @@ reset_player :: proc() {
     g.player.size = PLAYER_SIZE
     g.player.position = Vec2{f32(g.width) / 2 - (g.player.size.x / 2), f32(g.height) - PLAYER_SIZE.y}
     ball_reset(g.player.position + Vec2{PLAYER_SIZE.x / 2 - BALL_RADIUS, -(BALL_RADIUS * 2)}, BALL_INITIAL_VELOCITY)
-    // effects.chaos = false
-    // effects.confuse = false
+    g.post_processor.chaos = false
+    g.post_processor.confuse = false
     g.ball.passthrough = false
     g.ball.sticky = false
     g.ball.color = {1,1,1}
@@ -703,7 +673,7 @@ draw_sprite :: proc(position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, tex
 		sprite_color = color
 	}
 
-    // TODO: bind texture
+    // bind texture
     if tex, exists := resman_get_texture(texture_name); exists {
         g.sprite_bind.images[IMG_tex] = tex
     } else {
@@ -729,7 +699,7 @@ entity_draw :: proc(entity: Entity) {
     }
 }
 
-// TODO: expose dependencies: bind, pip, resman, shader. consolidate into a "renderer" data object
+// TODO: expose dependencies: bind, pip, resman, shader. consolidate into a "renderer" data object. See text_renderer and post_processor
 sprite_renderer_init :: proc() {
     log.info("Initializing sprite renderer...")
     // 1. Create the quad geometry (same as OpenGL version)
@@ -1110,45 +1080,27 @@ vector_direction :: proc(target: Vec2) -> Direction {
     return best_match
 }
 
+update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
+    g.screen_width = screen_width
+    g.screen_height = screen_height
 
-// TODO: letterboxing
-// update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
-//     game.screen_width = screen_width
-//     game.screen_height = screen_height
-//
-//     target_aspect := f32(LOGICAL_W) / f32(LOGICAL_H)
-//     screen_aspect := f32(screen_width) / f32(screen_height)
-//
-//     if screen_aspect > target_aspect {
-//         // Screen is wider than target - letterbox on sides
-//         game.viewport_height = i32(screen_height)
-//         game.viewport_width = i32(f32(screen_height) * target_aspect)
-//         game.viewport_x = (i32(screen_width) - game.viewport_width) / 2
-//         game.viewport_y = 0
-//     } else {
-//         // Screen is taller than target - letterbox on top/bottom
-//         game.viewport_width = i32(screen_width)
-//         game.viewport_height = i32(f32(screen_width) / target_aspect)
-//         game.viewport_x = 0
-//         game.viewport_y = (i32(screen_height) - game.viewport_height) / 2
-//     }
-//
-//     projection := linalg.matrix_ortho3d_f32(0, f32(game.width), f32(game.height), 0, -1, 1)
-//
-//     sprite_shader := resman_get_shader("sprite")
-//     shader_use(sprite_shader)
-//     shader_set_mat4(sprite_shader, "projection", &projection)
-//
-//     particle_shader := resman_get_shader("particle")
-//     shader_use(particle_shader)
-//     shader_set_mat4(particle_shader, "projection", &projection)
-//
-//     text_shader := resman_get_shader("text")
-//     shader_use(text_shader)
-//     shader_set_mat4(text_shader, "projection", &projection)
-//
-//     gl.Viewport(game.viewport_x, game.viewport_y, game.viewport_width, game.viewport_height)
-// }
+    target_aspect := f32(LOGICAL_W) / f32(LOGICAL_H)
+    screen_aspect := f32(screen_width) / f32(screen_height)
+
+    if screen_aspect > target_aspect {
+        // Screen is wider than target - letterbox on sides
+        g.viewport_height = i32(screen_height)
+        g.viewport_width = i32(f32(screen_height) * target_aspect)
+        g.viewport_x = (i32(screen_width) - g.viewport_width) / 2
+        g.viewport_y = 0
+    } else {
+        // Screen is taller than target - letterbox on top/bottom
+        g.viewport_width = i32(screen_width)
+        g.viewport_height = i32(f32(screen_width) / target_aspect)
+        g.viewport_x = 0
+        g.viewport_y = (i32(screen_height) - g.viewport_height) / 2
+    }
+}
 
 ball_object_make :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_Object {
     obj: Entity
@@ -1289,9 +1241,7 @@ particle_generator_respawn_particle :: proc(pg: ^Particle_Generator, particle: ^
     particle.velocity = object.velocity * 0.1
 }
 
-// TODO: set blend functions
 particle_generator_draw :: proc(pg: Particle_Generator) {
-    // gl.BlendFunc(gl.SRC_ALPHA, gl.ONE)
     projection := compute_projection()
     for i in 0..<sa.len(pg.particles) {
         p := sa.get(pg.particles, i)
@@ -1306,20 +1256,15 @@ particle_generator_draw :: proc(pg: Particle_Generator) {
                 g.particle_bind.images[IMG_particle_tex] = texture
             } 
 
-            // TODO: should specify bind.vertex_buffers[1]??
             sg.apply_bindings(g.particle_bind)
             sg.apply_uniforms(UB_particle_vs_params, { ptr = &particle_vs_params, size = size_of(particle_vs_params) })
             sg.draw(0, 6, 1)
         }
     }
-    // gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 }
 
 particle_make :: proc() -> Particle {
-    return {
-        color = {1,1,1,1}
-    }
-}
+    return { color = {1,1,1,1} } }
 
 post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     pp.width = width
@@ -1413,7 +1358,6 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
 
 init_postprocess_params :: proc() -> Postprocess_Fs_Params {
     params: Postprocess_Fs_Params
-
     offset: f32 = 1.0 / 300.0
         params.offsets = {
         {-offset,  offset, 0, 0},  // top-left
@@ -1426,21 +1370,18 @@ init_postprocess_params :: proc() -> Postprocess_Fs_Params {
         { 0.0,    -offset, 0, 0},  // bottom-center
         { offset, -offset, 0, 0},  // bottom-right
     }
-
     // Edge detection kernel
     params.edge_kernel = {
         {-1, -1, -1, 0},
         {-1,  8, -1, 0},
         {-1, -1, -1, 0},
     }
-
     // Blur kernel (normalized)
     params.blur_kernel = {
         {1.0/16, 2.0/16, 1.0/16, 0},
         {2.0/16, 4.0/16, 2.0/16, 0},
         {1.0/16, 2.0/16, 1.0/16, 0},
     }
-
     return params
 }
 
@@ -1691,7 +1632,7 @@ text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32
     create_font_atlas(tr, &font_info, font_size)
 
     tr.vertex_buffer = sg.make_buffer({
-        size = MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * N_FLOATS_PER_VERTEX * size_of(f32), // 6 vert per char, 4 float per vertex
+        size = MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * N_FLOATS_PER_VERTEX * size_of(f32),
         usage = { stream_update = true },
         label = "text-vertices"
     })
@@ -1735,22 +1676,22 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
     if len(tr.batch.vertices) == 0 {
         return
     }
-    
+
     // Single buffer update for all text
     sg.update_buffer(tr.vertex_buffer, {
         ptr = raw_data(tr.batch.vertices),
         size = uint(len(tr.batch.vertices) * size_of(f32)),
     })
-    
+
     // Set up pipeline and projection once
     sg.apply_pipeline(tr.pip)
     sg.apply_bindings(tr.bind)
-    
+
     vs_params := Text_Vs_Params{
         projection = compute_projection(),
     }
     sg.apply_uniforms(UB_text_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
-    
+
     // Draw each text string with its color
     for cmd in tr.batch.draw_commands {
         fs_params := Text_Fs_Params{
@@ -1759,7 +1700,7 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
         sg.apply_uniforms(UB_text_fs_params, { ptr = &fs_params, size = size_of(fs_params) })
         sg.draw(cmd.start_vertex, cmd.num_vertices, 1)
     }
-    
+
     // Clear the batch for next frame
     clear(&tr.batch.vertices)
     clear(&tr.batch.draw_commands)
@@ -1870,9 +1811,7 @@ text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1,
     pen_y := y
 
     for c in text {
-        if c < 32 || c >= 128 {
-            continue // skip non-ascii
-        }
+        if c < 32 || c >= 128 do continue // skip non-ascii
 
         char := &tr.characters[c]
 
@@ -1901,23 +1840,6 @@ text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1,
         })
     }
 }
-    // sg.update_buffer(tr.vertex_buffer, {
-    //     ptr = sa.get_ptr(&vertices, 0),
-    //     size = uint(sa.len(vertices) * size_of(f32)),
-    // })
-    //
-    // vs_params := Text_Vs_Params {
-    //     projection = compute_projection()
-    // }
-    // fs_params := Text_Fs_Params {
-    //     text_color = color,
-    // }
-    //
-    // sg.apply_pipeline(tr.pip)
-    // sg.apply_bindings(tr.bind)
-    // sg.apply_uniforms(UB_text_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
-    // sg.apply_uniforms(UB_text_fs_params, { ptr = &fs_params, size = size_of(fs_params) })
-    // sg.draw(0, sa.len(vertices) / 4, 1)
 
 text_draw_centered :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1, 1, 1}) {
     width := text_measure(tr, text)
@@ -1927,9 +1849,7 @@ text_draw_centered :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: V
 text_measure :: proc(tr: ^Text_Renderer, text: string) -> f32 {
     width: f32 = 0
     for c in text {
-        if c < 32 || c >= 128 {
-            continue
-        }
+        if c < 32 || c >= 128 do continue 
         width += tr.characters[c].advance
     }
     return width
