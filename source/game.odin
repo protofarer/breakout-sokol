@@ -44,12 +44,12 @@ Game_Memory :: struct {
 	keys: #sparse [sapp.Keycode]bool,
 	keys_processed: #sparse [sapp.Keycode]bool,
 
-	player: Entity,
-    ball: Ball_Object,
+	player: Player,
+    ball: Ball,
 
     levels: [dynamic]Game_Level,
     level: u32,
-    powerups: [dynamic]Powerup_Object,
+    powerups: [dynamic]Powerup,
     lives: i32,
 
 
@@ -78,26 +78,31 @@ Game_State :: enum {
 }
 
 Game_Level :: struct {
-    bricks: [dynamic]Entity
+    bricks: [dynamic]Brick
 }
 
 Entity :: struct {
     position: Vec2,
-    size: Vec2, 
     velocity: Vec2,
+    size: Vec2, 
 	color: Vec3,
 	rotation: f32,
-	is_solid: bool,
-    destroyed: bool,
     texture_name: string,
 }
 
-Ball_Object :: struct {
-    using game_object: Entity,
+Brick :: struct {
+    using entity: Entity,
+    is_solid, destroyed: bool
+}
+
+Ball :: struct {
+    using entity: Entity,
     radius: f32,
-    stuck: bool,
-    sticky: bool,
-    passthrough: bool,
+    stuck, sticky, passthrough: bool,
+}
+
+Player :: struct {
+    using entity: Entity,
 }
 
 POWERUP_SIZE :: Vec2{60,20}
@@ -118,9 +123,10 @@ Powerup_Type :: enum {
     Chaos,
 }
 
-Powerup_Object :: struct {
-    using object: Entity,
+Powerup :: struct {
+    using entity: Entity,
     type: Powerup_Type,
+    destroyed: bool,
     activated: bool,
     duration: f32,
 }
@@ -326,27 +332,26 @@ game_init :: proc() {
     append(&g.levels, four)
     g.level = 0
 
-	player: Entity
-    player_pos := Vec2 {
+    player_init(&g.player)
+
+    ball_init(&g.ball, g.player, BALL_RADIUS, BALL_INITIAL_VELOCITY)
+    
+    log.info("## END Game Init ###")
+
+    play_sound("music")
+}
+
+player_init :: proc(player: ^Player) {
+    pos := Vec2 {
         (f32(g.width) / 2) - (PLAYER_SIZE.x / 2), 
         f32(g.height) - PLAYER_SIZE.y
     }
 	entity_init(
-        entity = &player, 
-        position = player_pos, 
+        entity = &player.entity, 
+        position = pos, 
         size = PLAYER_SIZE, 
         texture_name = "paddle"
     )
-	g.player = player
-
-    ball_pos := player_pos + Vec2 { 
-        f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, 
-        -BALL_RADIUS * 2 
-    }
-    g.ball = ball_object_init(ball_pos, BALL_RADIUS, BALL_INITIAL_VELOCITY)
-    log.info("## END Game Init ###")
-
-    play_sound("music")
 }
 
 @export
@@ -404,7 +409,7 @@ render :: proc(dt: f32) {
             game_object_draw(p)
         }
     }
-    game_object_draw(g.ball.game_object)
+    game_object_draw(g.ball.entity)
 
     // Particles
     sg.apply_pipeline(g.particle_renderer.pip)
@@ -825,7 +830,7 @@ check_collision :: proc(a: Entity, b: Entity) -> bool {
            b.position.y + b.size.y >= a.position.y
 }
 
-check_ball_box_collision :: proc(ball: Ball_Object, box: Entity) -> Collision_Data {
+check_ball_box_collision :: proc(ball: Ball, box: Entity) -> Collision_Data {
     ball_center := ball.position + ball.radius
     half_extents := Vec2{box.size.x / 2, box.size.y / 2}
     box_center := Vec2{box.position.x + half_extents.x, box.position.y + half_extents.y}
@@ -987,28 +992,28 @@ game_level_init :: proc(game_level: ^Game_Level, tile_data: [][dynamic]Tile_Code
             case .Space:
             case .Indestructible_Brick:
                 color = {.8,.8,.7}
-                obj: Entity
+                obj: Brick
                 entity_init(&obj, pos, size, color, {}, "block_solid")
                 obj.is_solid = true
                 append(&game_level.bricks, obj)
             case .Brick_A:
                 color = {.2,.6,1}
-                obj: Entity
+                obj: Brick
                 entity_init(&obj, pos, size, color, {}, "block")
                 append(&game_level.bricks, obj)
             case .Brick_B:
                 color = {.0,.7,.0}
-                obj: Entity
+                obj: Brick
                 entity_init(&obj, pos, size, color, {}, "block")
                 append(&game_level.bricks, obj)
             case .Brick_C:
                 color = {.8,.8,.4}
-                obj: Entity
+                obj: Brick
                 entity_init(&obj, pos, size, color, {}, "block")
                 append(&game_level.bricks, obj)
             case .Brick_D:
                 color = {1.,.5,.0}
-                obj: Entity
+                obj: Brick
                 entity_init(&obj, pos, size, color, {}, "block")
                 append(&game_level.bricks, obj)
             }
@@ -1088,14 +1093,14 @@ update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
     }
 }
 
-ball_object_init :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_Object {
-    obj: Entity
-    entity_init(&obj, pos, Vec2{ radius * 2, radius * 2}, Vec3{1,1,1}, velocity, "ball")
-    return Ball_Object{
-        game_object = obj,
-        stuck = true,
-        radius = radius,
+ball_init :: proc(ball: ^Ball, player: Player, radius: f32 = 12.5, velocity: Vec2) {
+    pos := player.position + Vec2 { 
+        f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, 
+        -BALL_RADIUS * 2 
     }
+    entity_init(&ball.entity, pos, Vec2{ radius * 2, radius * 2}, Vec3{1,1,1}, velocity, "ball")
+    ball.stuck = true
+    ball.radius = radius
 }
 
 particle_renderer_init :: proc(pr: ^Particle_Renderer) {
@@ -1394,30 +1399,18 @@ post_processor_apply_uniforms :: proc(pp: ^Post_Processor, dt: f32) {
     })
 }
 
-powerup_init :: proc(type: Powerup_Type, color: Vec3, duration: f32, position: Vec2, texture_name: string) -> Powerup_Object {
-    o: Entity
+powerup_init :: proc(powerup: ^Powerup, type: Powerup_Type, color: Vec3, duration: f32, position: Vec2, texture_name: string) {
     entity_init(
-        &o, 
+        &powerup.entity, 
         position = position, 
         size = POWERUP_SIZE, 
         color = color, 
         velocity = POWERUP_VELOCITY,
         texture_name = texture_name
     )
-    return {
-        position = o.position,
-        size = o.size, 
-        velocity = o.velocity,
-        color = o.color,
-        rotation = o.rotation,
-        is_solid = o.is_solid,
-        destroyed = o.destroyed,
-        texture_name = o.texture_name,
-
-        type = type,
-        duration = duration,
-        activated = false,
-    }
+    powerup.type = type
+    powerup.duration = duration
+    powerup.activated = false
 }
 
 should_spawn :: proc(chance: u32) -> bool {
@@ -1428,32 +1421,33 @@ should_spawn :: proc(chance: u32) -> bool {
 
 powerups_spawn :: proc(block: Entity) {
     if should_spawn(75) { // 1 in 75 chance
-        p := powerup_init(.Speed, {0.5,0.5,1.0}, 0, block.position, "speed")
+        p: Powerup
+        powerup_init(&p, .Speed, {0.5,0.5,1.0}, 0, block.position, "speed")
         append(&g.powerups, p)
-    }
-    if should_spawn(75) {
-        p := powerup_init(.Sticky, {1,0.5,1.0}, 5, block.position, "sticky")
+    } else if should_spawn(75) {
+        p: Powerup
+        powerup_init(&p, .Sticky, {1,0.5,1.0}, 5, block.position, "sticky")
         append(&g.powerups, p)
-    }
-    if should_spawn(75) {
-        p := powerup_init(.Passthrough, {0.5,1.0,0.5}, 10, block.position, "passthrough")
+    } else if should_spawn(75) {
+        p: Powerup
+        powerup_init(&p, .Passthrough, {0.5,1.0,0.5}, 10, block.position, "passthrough")
         append(&g.powerups, p)
-    }
-    if should_spawn(75) {
-        p := powerup_init(.Padsize_Increase, {1.0,0.6,0.4}, 0, block.position, "size")
+    } else if should_spawn(75) {
+        p: Powerup
+        powerup_init(&p, .Padsize_Increase, {1.0,0.6,0.4}, 0, block.position, "size")
         append(&g.powerups, p)
-    }
-    if should_spawn(15) {
-        p := powerup_init(.Confuse, {1.0,0.3,0.3}, 15, block.position, "confuse")
+    } else if should_spawn(15) {
+        p: Powerup
+        powerup_init(&p, .Confuse, {1.0,0.3,0.3}, 15, block.position, "confuse")
         append(&g.powerups, p)
-    }
-    if should_spawn(15) {
-        p := powerup_init(.Chaos, {0.9,0.25,0.25}, 15, block.position, "chaos")
+    } else if should_spawn(15) {
+        p: Powerup
+        powerup_init(&p, .Chaos, {0.9,0.25,0.25}, 15, block.position, "chaos")
         append(&g.powerups, p)
     }
 }
 
-powerup_activate :: proc(p: ^Powerup_Object) {
+powerup_activate :: proc(p: ^Powerup) {
     p.activated = true
     switch p.type {
     case .Speed:
