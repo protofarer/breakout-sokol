@@ -39,9 +39,7 @@ Vec4 :: [4]f32
 Mat4 :: matrix[4,4]f32
 
 Game_Memory :: struct {
-    sprite_pip: sg.Pipeline,
-	sprite_bind: sg.Bindings,
-
+    sprite_renderer: Sprite_Renderer,
     particle_pip: sg.Pipeline,
     particle_bind: sg.Bindings,
 
@@ -130,6 +128,11 @@ Powerup_Object :: struct {
     type: Powerup_Type,
     activated: bool,
     duration: f32,
+}
+
+Sprite_Renderer :: struct {
+    pip: sg.Pipeline,
+    bind: sg.Bindings,
 }
 
 Texture2D :: struct {
@@ -268,7 +271,7 @@ game_init :: proc() {
     resman_init()
     log.info("Initialized resource manager")
 
-    sprite_renderer_init()
+    sprite_renderer_init(&g.sprite_renderer)
     log.info("Initialized sprite renderer")
 
     // TODO: break out partcle_gen and renderer (diff pg's can use same renderer)
@@ -379,7 +382,7 @@ render :: proc(dt: f32) {
     sg.apply_viewport(0, 0, i32(g.width), i32(g.height), true)
 
     // Sprites
-    sg.apply_pipeline(g.sprite_pip)
+    sg.apply_pipeline(g.sprite_renderer.pip)
     draw_sprite({0,0}, {f32(g.width), f32(g.height)}, 0, "background")
     game_level_draw(&g.levels[g.level])
     entity_draw(g.player)
@@ -536,8 +539,8 @@ process_input :: proc(dt: f32) {
 @export
 game_cleanup :: proc() {
 	sg.shutdown()
-	sg.destroy_buffer(g.sprite_bind.vertex_buffers[0])
-	sg.destroy_pipeline(g.sprite_pip)
+	sg.destroy_buffer(g.sprite_renderer.bind.vertex_buffers[0])
+	sg.destroy_pipeline(g.sprite_renderer.pip)
 	sg.destroy_buffer(g.particle_bind.vertex_buffers[0])
 	sg.destroy_pipeline(g.particle_pip)
 
@@ -657,6 +660,10 @@ resman_load_texture :: proc(path: string, name: string) -> sg.Image {
     return img
 }
 
+resman_set_texture :: proc(name: string, texture: sg.Image) {
+    g.resman.textures[name] = texture
+}
+
 resman_get_texture :: proc(name: string) -> (sg.Image, bool) {
     return g.resman.textures[name]
 }
@@ -675,13 +682,13 @@ draw_sprite :: proc(position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, tex
 
     // bind texture
     if tex, exists := resman_get_texture(texture_name); exists {
-        g.sprite_bind.images[IMG_tex] = tex
+        g.sprite_renderer.bind.images[IMG_tex] = tex
     } else {
-        g.sprite_bind.images[IMG_tex], _ = resman_get_texture("white")
+        g.sprite_renderer.bind.images[IMG_tex], _ = resman_get_texture("white")
     }
 
     // 4. Issue draw commands
-    sg.apply_bindings(g.sprite_bind)
+    sg.apply_bindings(g.sprite_renderer.bind)
 	sg.apply_uniforms(UB_sprite_vs_params, { ptr = &sprite_vs_params, size = size_of(sprite_vs_params) })
 	sg.apply_uniforms(UB_sprite_fs_params, { ptr = &sprite_fs_params, size = size_of(sprite_fs_params) })
     sg.draw(0, 6, 1)
@@ -700,7 +707,7 @@ entity_draw :: proc(entity: Entity) {
 }
 
 // TODO: expose dependencies: bind, pip, resman, shader. consolidate into a "renderer" data object. See text_renderer and post_processor
-sprite_renderer_init :: proc() {
+sprite_renderer_init :: proc(sr: ^Sprite_Renderer) {
     log.info("Initializing sprite renderer...")
     // 1. Create the quad geometry (same as OpenGL version)
     vertices := [?]Vertex {
@@ -714,11 +721,11 @@ sprite_renderer_init :: proc() {
     }
 
     // 2. Create vertex buffer
-    g.sprite_bind.vertex_buffers[0] = sg.make_buffer({
+    sr.bind.vertex_buffers[0] = sg.make_buffer({
         data = { ptr = &vertices, size = size_of(vertices) },
         label = "sprite-vertices",
     })
-    if sg.query_buffer_state(g.sprite_bind.vertex_buffers[0]) != .VALID {
+    if sg.query_buffer_state(sr.bind.vertex_buffers[0]) != .VALID {
         log.error("Failed to create vertex buffer")
         return
     }
@@ -743,17 +750,18 @@ sprite_renderer_init :: proc() {
        log.error("Failed to create white texture")
        return
     }
-    // TODO: resman_set_texture
-    g.resman.textures["white"] = white_texture
+    resman_set_texture("white", white_texture)
     log.info("Created white texture")
 
     // 4. Set up default bindings
-    g.sprite_bind.images[IMG_tex] = g.resman.textures["white"]
+    if tex, ok_white_tex := resman_get_texture("white"); ok_white_tex {
+        sr.bind.images[IMG_tex] = tex
+    }
 
-    g.sprite_bind.samplers[SMP_smp] = sg.make_sampler({
+    sr.bind.samplers[SMP_smp] = sg.make_sampler({
         label = "sprite-sampler",
     })
-    if sg.query_sampler_state(g.sprite_bind.samplers[SMP_smp]) != .VALID {
+    if sg.query_sampler_state(sr.bind.samplers[SMP_smp]) != .VALID {
         log.error("Failed to create sampler")
         return
     }
@@ -768,7 +776,7 @@ sprite_renderer_init :: proc() {
     log.info("Created shader")
 
     // 6. Create the rendering pipeline
-    g.sprite_pip = sg.make_pipeline({
+    sr.pip = sg.make_pipeline({
         shader = shader,
 		layout = {
 			attrs = {
@@ -789,7 +797,7 @@ sprite_renderer_init :: proc() {
         },
         label = "sprite-pipeline",
     })
-    if sg.query_pipeline_state(g.sprite_pip) != .VALID {
+    if sg.query_pipeline_state(g.sprite_renderer.pip) != .VALID {
         log.error("Failed to create pipeline")
         return
     }
@@ -1352,11 +1360,6 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
         label = "post-pipeline",
     })
 
-    pp.fs_params = init_postprocess_params()
-}
-
-
-init_postprocess_params :: proc() -> Postprocess_Fs_Params {
     params: Postprocess_Fs_Params
     offset: f32 = 1.0 / 300.0
         params.offsets = {
@@ -1382,7 +1385,7 @@ init_postprocess_params :: proc() -> Postprocess_Fs_Params {
         {2.0/16, 4.0/16, 2.0/16, 0},
         {1.0/16, 2.0/16, 1.0/16, 0},
     }
-    return params
+    pp.fs_params = params
 }
 
 post_processor_apply_uniforms :: proc(pp: ^Post_Processor, dt: f32) {

@@ -88,6 +88,7 @@ void main() {
 @vs postprocess_vs
 layout(binding=0) uniform postprocess_vs_params {
     float time;
+    // ok to use int instead of bool, supposed industry standard for shader flags
     int chaos;
     int confuse;
     int shake;
