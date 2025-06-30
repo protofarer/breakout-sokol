@@ -178,3 +178,38 @@ void main() {
 @end
 
 @program postprocess postprocess_vs postprocess_fs
+
+// ============================================================================
+// TEXT SHADER
+// ============================================================================
+@vs text_vs
+layout(binding=0) uniform text_vs_params {
+    mat4 projection;
+};
+
+in vec4 vertex; // <x, y, u, v>
+out vec2 TexCoords;
+
+void main() {
+    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
+    TexCoords = vertex.zw;
+}
+@end
+
+@fs text_fs
+layout(binding=0) uniform texture2D text_atlas;
+layout(binding=1) uniform sampler text_smp;
+layout(binding=2) uniform text_fs_params {
+    vec3 text_color;
+};
+
+in vec2 TexCoords;
+out vec4 frag_color;
+
+void main() {
+    // Sample the red channel (where the font data is) and use it as alpha
+    float alpha = texture(sampler2D(text_atlas, text_smp), TexCoords).r;
+    frag_color = vec4(text_color, alpha);
+}
+@end
+@program text text_vs text_fs
