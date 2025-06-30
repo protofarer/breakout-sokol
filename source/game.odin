@@ -1,25 +1,24 @@
 package game
 
-import "core:math/linalg"
-import "core:image/png"
 import "core:log"
 import "core:slice"
 import "core:fmt"
 import "core:strings"
 import "core:strconv"
 import "core:os"
+import "core:math/linalg"
 import "core:math/rand"
+import "core:image/png"
 import sa "core:container/small_array"
+
 import stbi "vendor:stb/image"
+import stbtt "vendor:stb/truetype"
 import ma "vendor:miniaudio"
+
 import sapp "sokol/app"
 import sg "sokol/gfx"
 import sglue "sokol/glue"
 import slog "sokol/log"
-import stbtt "vendor:stb/truetype"
-
-pr :: fmt.println
-to_radians :: linalg.to_radians
 
 LOGICAL_W :: 1920
 LOGICAL_H :: 1080
@@ -82,7 +81,6 @@ Game_Level :: struct {
     bricks: [dynamic]Entity
 }
 
-// TODO: ball, powerup variants
 Entity :: struct {
     position: Vec2,
     size: Vec2, 
@@ -271,17 +269,20 @@ game_init :: proc() {
     update_viewport_and_projection(u32(sapp.width()), u32(sapp.height()))
 
     g.resman = new(Resource_Manager)
-    resman_init()
+    resman_init(g.resman)
     log.info("Initialized resource manager")
+
+    create_and_load_white_texture()
+    log.info("Initialized white fallback texture")
 
     sprite_renderer_init(&g.sprite_renderer)
     log.info("Initialized sprite renderer")
 
     particle_renderer_init(&g.particle_renderer)
-
-    // TODO: break out partcle_gen and renderer (diff pg's can use same renderer)
+    log.info("Initialized particle renderer")
+ 
     particle_generator_init(&g.ball_pg)
-    log.info("Initialized particle generator and particle renderer")
+    log.info("Initialized particle generator")
 
     post_processor_init(&g.post_processor, i32(g.width), i32(g.height))
     log.info("Initialized post processor")
@@ -300,41 +301,52 @@ game_init :: proc() {
     resman_load_texture("assets/powerup_sticky.png", "sticky")
     log.info("Finished loading textures")
 
-    result := ma.engine_init(nil, &g.audio_engine)
-    if result != ma.result.SUCCESS {
+    if audio_engine_init_result := ma.engine_init(nil, &g.audio_engine); 
+        audio_engine_init_result != ma.result.SUCCESS {
         log.error("Failed to initialize audio engine")
     }
-
     resman_load_sound("assets/music.mp3", "music")
     resman_load_sound("assets/bleep.mp3", "hit-nonsolid")
     resman_load_sound("assets/solid.wav", "hit-solid")
     resman_load_sound("assets/powerup.wav", "get-powerup")
     resman_load_sound("assets/bleep.wav", "hit-paddle")
+    log.info("Finished loading sounds")
 
     text_renderer_init(&g.text_renderer, "assets/arial.ttf", 24)
+    log.info("Initialized text renderer")
 
     one, two, three, four: Game_Level
     game_level_load(&one, "assets/one.lvl", u32(g.width), u32(g.height) / 2)
-    game_level_load(&two, "assets/two.lvl", u32(g.width), u32(g.height) / 2)
-    game_level_load(&three, "assets/three.lvl", u32(g.width), u32(g.height) / 2)
-    game_level_load(&four, "assets/four.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, one)
+    game_level_load(&two, "assets/two.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, two)
+    game_level_load(&three, "assets/three.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, three)
+    game_level_load(&four, "assets/four.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, four)
     g.level = 0
 
 	player: Entity
-    player_pos := Vec2{ (f32(g.width) / 2) - (PLAYER_SIZE.x / 2), f32(g.height) - PLAYER_SIZE.y}
-	entity_init(entity = &player, position = player_pos, size = PLAYER_SIZE, texture_name = "paddle")
+    player_pos := Vec2 {
+        (f32(g.width) / 2) - (PLAYER_SIZE.x / 2), 
+        f32(g.height) - PLAYER_SIZE.y
+    }
+	entity_init(
+        entity = &player, 
+        position = player_pos, 
+        size = PLAYER_SIZE, 
+        texture_name = "paddle"
+    )
 	g.player = player
 
-    ball_pos := player_pos + Vec2{f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, -BALL_RADIUS * 2}
-    g.ball = ball_object_make(ball_pos, BALL_RADIUS, BALL_INITIAL_VELOCITY)
+    ball_pos := player_pos + Vec2 { 
+        f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, 
+        -BALL_RADIUS * 2 
+    }
+    g.ball = ball_object_init(ball_pos, BALL_RADIUS, BALL_INITIAL_VELOCITY)
+    log.info("## END Game Init ###")
 
     play_sound("music")
-
-    log.info("## END Game Init###")
 }
 
 @export
@@ -347,18 +359,13 @@ game_frame :: proc() {
 
 update :: proc(dt: f32) {
     process_input(dt)
-
-    ball_move(dt, g.width)
-    game_do_collisions()
+    ball_update(dt, g.width)
+    collisions_update()
     particle_generator_update(&g.ball_pg, dt, g.ball, 2, {g.ball.radius / 2, g.ball.radius / 2})
     powerups_update(dt)
+    post_processor_update(dt)
 
-    if g.post_processor.shake_time > 0 {
-        g.post_processor.shake_time -= dt
-        if g.post_processor.shake_time <= 0 {
-            g.post_processor.shake = false
-        }
-    }
+    // Lose life
     if g.ball.position.y >= f32(g.height) {
         g.lives -= 1
         if g.lives == 0 {
@@ -368,6 +375,7 @@ update :: proc(dt: f32) {
         reset_player()
     }
 
+    // Win condition
     if g.state == .Active && game_is_completed(g.levels[g.level]) {
         game_reset_level()
         reset_player()
@@ -405,8 +413,6 @@ render :: proc(dt: f32) {
     // Text
     lives_text := fmt.tprintf("Lives: %v", g.lives)
     text_draw(&g.text_renderer, lives_text, 50, 50, {1, 1, 1})
-
-    // Menu text
     if g.state == .Menu {
         text_draw_centered(&g.text_renderer, "BREAKOUT", 
             f32(g.width)/2, f32(g.height)/2 - 50, {1, 1, 1})
@@ -417,7 +423,6 @@ render :: proc(dt: f32) {
         text_draw_centered(&g.text_renderer, "A/D to move paddle", 
             f32(g.width)/2, f32(g.height)/2 + 60, {0.6, 0.6, 0.6})
     }
-    // Win text
     if g.state == .Win {
         text_draw_centered(&g.text_renderer, "YOU WIN!!!", 
             f32(g.width)/2, f32(g.height)/2, {0, 1, 0})
@@ -429,7 +434,7 @@ render :: proc(dt: f32) {
 
     sg.end_pass()
 
-    // render postprocessed fullscreen quad to swapchain
+    // Render postprocessed fullscreen quad
     fullscreen_pass_action := sg.Pass_Action {
         colors = { 0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 }}}
     }
@@ -448,7 +453,7 @@ compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotatio
 	proj := compute_projection()
     model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
     model = linalg.matrix4_translate(Vec3{-0.5 * size.x, -0.5 * size.y, 0}) * model
-    model = linalg.matrix4_rotate(to_radians(rotation), Vec3{0,0,1}) * model
+    model = linalg.matrix4_rotate(linalg.to_radians(rotation), Vec3{0,0,1}) * model
     model = linalg.matrix4_translate(Vec3{0.5 * size.x, 0.5 * size.y, 0}) * model
     model = linalg.matrix4_translate(Vec3{position.x, position.y, 0}) * model
 	return proj * model
@@ -529,12 +534,15 @@ process_input :: proc(dt: f32) {
                 g.state = .Active
         }
 
-        g.player.position.x = clamp(g.player.position.x, 0, f32(g.width) - g.player.size.x)
+        g.player.position.x = clamp(
+            g.player.position.x, 
+            0, 
+            f32(g.width) - g.player.size.x
+        )
     }
 
     if g.state == .Win {
         if g.keys[.ENTER] {
-            // g.keys_processed[glfw.KEY_ENTER] = true // NOTE: is this needed?
             g.post_processor.chaos = false
             g.state = .Menu
         }
@@ -544,26 +552,11 @@ process_input :: proc(dt: f32) {
 @export
 game_cleanup :: proc() {
 	sg.shutdown()
-	sg.destroy_buffer(g.sprite_renderer.bind.vertex_buffers[0])
-	sg.destroy_pipeline(g.sprite_renderer.pip)
-	sg.destroy_buffer(g.particle_renderer.bind.vertex_buffers[0])
-	sg.destroy_pipeline(g.particle_renderer.pip)
-
-    sg.destroy_image(g.post_processor.msaa_color_img)
-    sg.destroy_image(g.post_processor.msaa_depth_img)
-    sg.destroy_image(g.post_processor.resolve_color_img)
-    sg.destroy_attachments(g.post_processor.msaa_attachments)
-    sg.destroy_buffer(g.post_processor.bind.vertex_buffers[0])
-    sg.destroy_pipeline(g.post_processor.pip)
-
-    delete(g.resman.textures)
-
-    for key, &val in g.resman.sounds {
-        ma.sound_uninit(val)
-    }
-
+    sprite_renderer_cleanup(g.sprite_renderer)
+    particle_renderer_cleanup(g.particle_renderer)
     text_renderer_cleanup(&g.text_renderer)
-
+    post_processor_cleanup(g.post_processor)
+    resman_cleanup(g.resman)
 	free(g)
 }
 
@@ -594,8 +587,10 @@ reset_player :: proc() {
     g.player.size = PLAYER_SIZE
     g.player.position = Vec2{f32(g.width) / 2 - (g.player.size.x / 2), f32(g.height) - PLAYER_SIZE.y}
     ball_reset(g.player.position + Vec2{PLAYER_SIZE.x / 2 - BALL_RADIUS, -(BALL_RADIUS * 2)}, BALL_INITIAL_VELOCITY)
+
     g.post_processor.chaos = false
     g.post_processor.confuse = false
+
     g.ball.passthrough = false
     g.ball.sticky = false
     g.ball.color = {1,1,1}
@@ -626,12 +621,11 @@ read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32, i32) {
         return nil, 0, 0, 0
     }
     return pixels, width, height, n_channels
-
 }
 
-resman_init :: proc() {
-    g.resman.textures = make(map[string]sg.Image)
-    g.resman.sounds = make(map[string]^ma.sound)
+resman_init :: proc(rm: ^Resource_Manager) {
+    rm.textures = make(map[string]sg.Image)
+    rm.sounds = make(map[string]^ma.sound)
 }
 
 resman_load_texture :: proc(path: string, name: string) -> sg.Image {
@@ -660,8 +654,10 @@ resman_load_texture :: proc(path: string, name: string) -> sg.Image {
         return {}
     }
 
-    g.resman.textures[name] = img
+    resman_set_texture(name, img)
+
     log.info("Loaded texture:", name, "size:", width ,"x", height)
+
     return img
 }
 
@@ -711,7 +707,6 @@ entity_draw :: proc(entity: Entity) {
     }
 }
 
-// TODO: expose dependencies: bind, pip, resman, shader. consolidate into a "renderer" data object. See text_renderer and post_processor
 sprite_renderer_init :: proc(sr: ^Sprite_Renderer) {
     log.info("Initializing sprite renderer...")
     // 1. Create the quad geometry (same as OpenGL version)
@@ -736,29 +731,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer) {
     }
     log.info("Created vertex buffer")
 
-    // 3. Create a default white texture for solid colors
-    // TODO: make independent, used by both sprites and particles
-    white_pixels := [4]u8{255, 255, 255, 255}  // RGBA white
-    white_texture := sg.make_image({
-        width = 1,
-        height = 1,
-        data = {
-            subimage = {
-                0 = {
-                    0 = { ptr = &white_pixels, size = size_of(white_pixels) },
-                },
-            },
-        },
-        label = "white-texture",
-    })
-    if sg.query_image_state(white_texture) != .VALID {
-       log.error("Failed to create white texture")
-       return
-    }
-    resman_set_texture("white", white_texture)
-    log.info("Created white texture")
-
-    // 4. Set up default bindings
+    // 3. Set up default bindings
     if tex, ok_white_tex := resman_get_texture("white"); ok_white_tex {
         sr.bind.images[IMG_tex] = tex
     }
@@ -772,7 +745,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer) {
     }
     log.info("Created sampler")
 
-    // 6. Create shader
+    // 4. Create shader
     shader := sg.make_shader(sprite_shader_desc(sg.query_backend()))
     if sg.query_shader_state(shader) != .VALID {
         log.error("Failed to create shader")
@@ -780,7 +753,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer) {
     }
     log.info("Created shader")
 
-    // 6. Create the rendering pipeline
+    // 5. Create the rendering pipeline
     sr.pip = sg.make_pipeline({
         shader = shader,
 		layout = {
@@ -820,7 +793,7 @@ game_is_completed :: proc(level: Game_Level) -> bool {
 }
 
 
-ball_move :: proc(dt: f32, window_width: u32) {
+ball_update :: proc(dt: f32, window_width: u32) {
     if !g.ball.stuck {
         g.ball.position += g.ball.velocity * dt
         if g.ball.position.x < 0 {
@@ -878,7 +851,7 @@ check_ball_box_collision :: proc(ball: Ball_Object, box: Entity) -> Collision_Da
 
 }
 
-game_do_collisions :: proc() {
+collisions_update :: proc() {
     for &box in g.levels[g.level].bricks {
         if !box.destroyed {
             collision := check_ball_box_collision(g.ball, box)
@@ -1115,7 +1088,7 @@ update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
     }
 }
 
-ball_object_make :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_Object {
+ball_object_init :: proc(pos: Vec2, radius: f32 = 12.5, velocity: Vec2) -> Ball_Object {
     obj: Entity
     entity_init(&obj, pos, Vec2{ radius * 2, radius * 2}, Vec3{1,1,1}, velocity, "ball")
     return Ball_Object{
@@ -1203,7 +1176,7 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer) {
 
 particle_generator_init :: proc(pg: ^Particle_Generator) {
     particles: sa.Small_Array(MAX_PARTICLES, Particle)
-    particle := particle_make()
+    particle := particle_init()
     for i in 0..<MAX_PARTICLES {
         sa.push(&particles, particle)
     }
@@ -1282,7 +1255,7 @@ particle_generator_draw :: proc(pr: ^Particle_Renderer, pg: Particle_Generator) 
     }
 }
 
-particle_make :: proc() -> Particle {
+particle_init :: proc() -> Particle {
     return { color = {1,1,1,1} } }
 
 post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
@@ -1421,7 +1394,7 @@ post_processor_apply_uniforms :: proc(pp: ^Post_Processor, dt: f32) {
     })
 }
 
-powerup_make :: proc(type: Powerup_Type, color: Vec3, duration: f32, position: Vec2, texture_name: string) -> Powerup_Object {
+powerup_init :: proc(type: Powerup_Type, color: Vec3, duration: f32, position: Vec2, texture_name: string) -> Powerup_Object {
     o: Entity
     entity_init(
         &o, 
@@ -1455,27 +1428,27 @@ should_spawn :: proc(chance: u32) -> bool {
 
 powerups_spawn :: proc(block: Entity) {
     if should_spawn(75) { // 1 in 75 chance
-        p := powerup_make(.Speed, {0.5,0.5,1.0}, 0, block.position, "speed")
+        p := powerup_init(.Speed, {0.5,0.5,1.0}, 0, block.position, "speed")
         append(&g.powerups, p)
     }
     if should_spawn(75) {
-        p := powerup_make(.Sticky, {1,0.5,1.0}, 5, block.position, "sticky")
+        p := powerup_init(.Sticky, {1,0.5,1.0}, 5, block.position, "sticky")
         append(&g.powerups, p)
     }
     if should_spawn(75) {
-        p := powerup_make(.Passthrough, {0.5,1.0,0.5}, 10, block.position, "passthrough")
+        p := powerup_init(.Passthrough, {0.5,1.0,0.5}, 10, block.position, "passthrough")
         append(&g.powerups, p)
     }
     if should_spawn(75) {
-        p := powerup_make(.Padsize_Increase, {1.0,0.6,0.4}, 0, block.position, "size")
+        p := powerup_init(.Padsize_Increase, {1.0,0.6,0.4}, 0, block.position, "size")
         append(&g.powerups, p)
     }
     if should_spawn(15) {
-        p := powerup_make(.Confuse, {1.0,0.3,0.3}, 15, block.position, "confuse")
+        p := powerup_init(.Confuse, {1.0,0.3,0.3}, 15, block.position, "confuse")
         append(&g.powerups, p)
     }
     if should_spawn(15) {
-        p := powerup_make(.Chaos, {0.9,0.25,0.25}, 15, block.position, "chaos")
+        p := powerup_init(.Chaos, {0.9,0.25,0.25}, 15, block.position, "chaos")
         append(&g.powerups, p)
     }
 }
@@ -1879,4 +1852,58 @@ text_renderer_cleanup :: proc(tr: ^Text_Renderer) {
     delete(tr.batch.draw_commands)
 }
 
+post_processor_update :: proc(dt: f32) {
+    if g.post_processor.shake_time > 0 {
+        g.post_processor.shake_time -= dt
+        if g.post_processor.shake_time <= 0 {
+            g.post_processor.shake = false
+        }
+    }
+}
 
+sprite_renderer_cleanup :: proc(sr: Sprite_Renderer) {
+	sg.destroy_buffer(sr.bind.vertex_buffers[0])
+	sg.destroy_pipeline(sr.pip)
+}
+
+particle_renderer_cleanup :: proc(pr: Particle_Renderer) {
+	sg.destroy_buffer(pr.bind.vertex_buffers[0])
+	sg.destroy_pipeline(pr.pip)
+}
+
+post_processor_cleanup :: proc(pp: Post_Processor) {
+    sg.destroy_image(g.post_processor.msaa_color_img)
+    sg.destroy_image(g.post_processor.msaa_depth_img)
+    sg.destroy_image(g.post_processor.resolve_color_img)
+    sg.destroy_attachments(g.post_processor.msaa_attachments)
+    sg.destroy_buffer(g.post_processor.bind.vertex_buffers[0])
+    sg.destroy_pipeline(g.post_processor.pip)
+}
+
+resman_cleanup :: proc(rm: ^Resource_Manager) {
+    delete(g.resman.textures)
+    for key, &val in g.resman.sounds {
+        ma.sound_uninit(val)
+    }
+}
+
+create_and_load_white_texture :: proc() {
+    white_pixels := [4]u8{255, 255, 255, 255}
+    white_texture := sg.make_image({
+        width = 1,
+        height = 1,
+        data = {
+            subimage = {
+                0 = {
+                    0 = { ptr = &white_pixels, size = size_of(white_pixels) },
+                },
+            },
+        },
+        label = "white-texture",
+    })
+    if sg.query_image_state(white_texture) != .VALID {
+       log.error("Failed to create white texture")
+       return
+    }
+    resman_set_texture("white", white_texture)
+}
