@@ -38,6 +38,9 @@ Add `-debug` flag to any build command for debuggable binaries.
 ### Force OpenGL
 Add `-gl` flag to use OpenGL backend instead of platform defaults (D3D11/Metal).
 
+### Miniaudio Optimization
+Add `-check-miniaudio` flag to force recompilation of miniaudio for web builds (normally cached automatically).
+
 ## Code Architecture
 
 ### Core Structure
@@ -64,12 +67,14 @@ The `build.py` script handles:
 - Shader compilation using `sokol-shdc`
 - Web build with Emscripten integration
 - Automatic Sokol library updates and compilation
+- Miniaudio pre-compilation and caching for faster web builds
 
 ### Audio Architecture
 Dual audio system design:
 - **Native**: Uses `vendor:miniaudio` with engine/sound management
 - **Web**: Custom miniaudio bindings via C foreign imports
 - Platform selection via Odin build tags (`#+build !js` / `#+build js`)
+- **Web Performance**: Miniaudio is pre-compiled and cached in `source/web/precompiled/` to reduce build times
 
 ### Shader System
 - Shaders written in `shader.glsl`
@@ -85,7 +90,9 @@ Dual audio system design:
 ## Important Notes
 
 - Never modify files in `source/sokol/` or `sokol-shdc/` - these are auto-generated
+- Never modify files in `source/web/precompiled/` - these are build artifacts
 - Game state is in global `Game_Memory` struct for hot reload persistence
 - Web builds require all assets to be in `assets/` directory (preloaded)
 - Use `SOKOL_DLL=true` define for hot reload builds
 - Platform-specific code uses Odin build tags (`#+build js`, `#+build !js`)
+- Miniaudio compilation is automatically cached - use `-check-miniaudio` to force recompilation
