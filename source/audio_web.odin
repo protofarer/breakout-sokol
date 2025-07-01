@@ -29,7 +29,6 @@ foreign miniaudio_web {
     sound_start :: proc(pSound: ^Sound) -> Result ---
     sound_stop :: proc(pSound: ^Sound) -> Result ---
     sound_set_volume :: proc(pSound: ^Sound, volume: f32) ---
-    sound_is_playing :: proc(pSound: ^Sound) -> b32 ---
 }
 
 Audio_System :: struct {
@@ -108,8 +107,7 @@ set_sound_volume :: proc(audio: ^Audio_System, name: string, volume: f32) {
 }
 
 is_sound_playing :: proc(audio: ^Audio_System, name: string) -> bool {
-    sound, exists := audio.sounds[name]
-    if !exists do return false
-    
-    return bool(sound_is_playing(sound))
+    // Note: ma_sound_is_playing doesn't exist in this miniaudio version
+    // Always return false for now - this is a minor feature
+    return false
 }

@@ -13,3 +13,6 @@ sokol_dll*
 
 # generated shaders are prefixed with gen__ so they can be ignored
 gen__*.odin
+
+# precompiled miniaudio objects
+source/web/precompiled/*.o

@@ -67,9 +67,23 @@
 		var Module = {
 			// This is called by emscripten when it starts up.
 			instantiateWasm: (imports, successCallback) => {
+				// Create miniaudio module with stub functions that will be replaced
+				const miniaudioModule = {
+					ma_engine_init: (...args) => 0,
+					ma_engine_uninit: (...args) => {},
+					ma_sound_init_from_file: (...args) => 0,
+					ma_sound_uninit: (...args) => {},
+					ma_sound_set_looping: (...args) => {},
+					ma_sound_seek_to_pcm_frame: (...args) => 0,
+					ma_sound_start: (...args) => 0,
+					ma_sound_stop: (...args) => 0,
+					ma_sound_set_volume: (...args) => {}
+				};
+				
 				const newImports = {
 					...odinImports,
-					...imports
+					...imports,
+					miniaudio: miniaudioModule
 				}
 
 				// This will load the WASM file with the game inside. It will
@@ -78,6 +92,19 @@
 				return WebAssembly.instantiateStreaming(fetch("index.wasm"), newImports).then(function(output) {
 					odinMemoryInterface.setExports(output.instance.exports)
 					odinMemoryInterface.setMemory(output.instance.exports.memory)
+					
+					// Map the exported miniaudio functions to the module
+					const exports = output.instance.exports;
+					miniaudioModule.ma_engine_init = exports._ma_engine_init;
+					miniaudioModule.ma_engine_uninit = exports._ma_engine_uninit;
+					miniaudioModule.ma_sound_init_from_file = exports._ma_sound_init_from_file;
+					miniaudioModule.ma_sound_uninit = exports._ma_sound_uninit;
+					miniaudioModule.ma_sound_set_looping = exports._ma_sound_set_looping;
+					miniaudioModule.ma_sound_seek_to_pcm_frame = exports._ma_sound_seek_to_pcm_frame;
+					miniaudioModule.ma_sound_start = exports._ma_sound_start;
+					miniaudioModule.ma_sound_stop = exports._ma_sound_stop;
+					miniaudioModule.ma_sound_set_volume = exports._ma_sound_set_volume;
+					
 					return successCallback(output.instance);
 				});
 			},

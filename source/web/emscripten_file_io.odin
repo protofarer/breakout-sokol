@@ -11,23 +11,11 @@ import "core:log"
 import "core:c"
 import "core:strings"
 
-// These will be linked in by emscripten.
+// Use emscripten's file system API directly
 @(default_calling_convention = "c")
 foreign {
-	fopen  :: proc(filename, mode: cstring) -> ^FILE ---
-	fseek  :: proc(stream: ^FILE, offset: c.long, whence: Whence) -> c.int ---
-	ftell  :: proc(stream: ^FILE) -> c.long ---
-	fclose :: proc(stream: ^FILE) -> c.int ---
-	fread  :: proc(ptr: rawptr, size: c.size_t, nmemb: c.size_t, stream: ^FILE) -> c.size_t ---
-	fwrite :: proc(ptr: rawptr, size: c.size_t, nmemb: c.size_t, stream: ^FILE) -> c.size_t ---
-}
-
-FILE :: struct{}
-
-Whence :: enum c.int {
-	SET,
-	CUR,
-	END,
+	emscripten_get_preloaded_file_data :: proc(filename: cstring, size: ^c.int) -> rawptr ---
+	emscripten_get_preloaded_file_data_free :: proc(data: rawptr) ---
 }
 
 // Similar to raylib's LoadFileData
@@ -37,37 +25,28 @@ read_entire_file :: proc(name: string, allocator := context.allocator, loc := #c
 		return
 	}
 
-	file := fopen(strings.clone_to_cstring(name, context.temp_allocator), "rb")
-
-	if file == nil {
-		log.errorf("Failed to open file %v", name)
+	cname := strings.clone_to_cstring(name, context.temp_allocator)
+	size: c.int
+	file_data := emscripten_get_preloaded_file_data(cname, &size)
+	
+	if file_data == nil || size <= 0 {
+		log.errorf("Failed to load preloaded file %v", name)
 		return
 	}
-
-	defer fclose(file)
-
-	fseek(file, 0, .END)
-	size := ftell(file)
-	fseek(file, 0, .SET)
-
-	if size <= 0 {
-		log.errorf("Failed to read file %v", name)
-		return
-	}
+	
+	defer emscripten_get_preloaded_file_data_free(file_data)
 
 	data_err: runtime.Allocator_Error
-	data, data_err = make([]byte, size, allocator, loc)
+	data, data_err = make([]byte, int(size), allocator, loc)
 
 	if data_err != nil {
 		log.errorf("Error allocating memory: %v", data_err)
 		return
 	}
 
-	read_size := fread(raw_data(data), 1, c.size_t(size), file)
-
-	if read_size != c.size_t(size) {
-		log.warnf("File %v partially loaded (%i bytes out of %i)", name, read_size, size)
-	}
+	// Copy from the emscripten memory to our slice
+	src_slice := ([^]u8)(file_data)[:int(size)]
+	copy(data, src_slice)
 
 	log.debugf("Successfully loaded %v", name)
 	return data, true
@@ -75,34 +54,14 @@ read_entire_file :: proc(name: string, allocator := context.allocator, loc := #c
 
 // Similar to raylib's SaveFileData.
 //
-// Note: This can save during the current session, but I don't think you can
-// save any data between sessions. So when you close the tab your saved files
-// are gone. Perhaps you could communicate back to emscripten and save a cookie.
-// Or communicate with a server and tell it to save data.
+// Note: For web builds, file writing is not supported with preloaded files.
+// This is a stub implementation that logs a warning.
 write_entire_file :: proc(name: string, data: []byte, truncate := true) -> (success: bool) {
 	if name == "" {
 		log.error("No file name provided")
 		return
 	}
 
-	file := fopen(strings.clone_to_cstring(name, context.temp_allocator), truncate ? "wb" : "ab")
-	defer fclose(file)
-
-	if file == nil {
-		log.errorf("Failed to open '%v' for writing", name)
-		return
-	}
-
-	bytes_written := fwrite(raw_data(data), 1, len(data), file)
-
-	if bytes_written == 0 {
-		log.errorf("Failed to write file %v", name)
-		return
-	} else if bytes_written != len(data) {
-		log.errorf("File partially written, wrote %v out of %v bytes", bytes_written, len(data))
-		return
-	}
-	
-	log.debugf("File written successfully: %v", name)
-	return true
+	log.warnf("File writing not supported in web builds: %v", name)
+	return false
 }

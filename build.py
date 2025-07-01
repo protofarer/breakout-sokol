@@ -17,6 +17,7 @@ args_parser.add_argument("-no-shader-compile", action="store_true",   help="Don'
 args_parser.add_argument("-web",               action="store_true",   help="Build web release. Make sure emscripten (emcc) is in your PATH or use -emsdk-path flag to specify where it lives.")
 args_parser.add_argument("-emsdk-path",                               help="Path to where you have emscripten installed. Should be the root directory of your emscripten installation. Not necessary if emscripten is in your PATH. Can be used with both -web and -compile-sokol (the latter needs it when building the Sokol web (WASM) libraries).")
 args_parser.add_argument("-gl",                action="store_true",   help="Force OpenGL Sokol backend. Useful on some older computers, for example old MacBooks that don't support Metal.")
+args_parser.add_argument("-check-miniaudio",   action="store_true",   help="Force recompilation of miniaudio for web builds, even if precompiled object exists.")
 
 import urllib.request
 import os
@@ -274,6 +275,53 @@ def build_release():
 
 	return exe
 
+def compile_miniaudio_if_needed():
+	"""Compile miniaudio object if needed, using cached version when possible."""
+	# TODO: use cmd odin root
+	miniaudio_source = "/home/kenny/spaces/src/Odin/vendor/miniaudio/src/miniaudio.c"
+	miniaudio_header = "/home/kenny/spaces/src/Odin/vendor/miniaudio/src/miniaudio.h"
+	precompiled_dir = "source/web/precompiled"
+	miniaudio_obj = os.path.join(precompiled_dir, "miniaudio.o")
+	
+	# Ensure precompiled directory exists
+	if not os.path.exists(precompiled_dir):
+		os.makedirs(precompiled_dir)
+	
+	# Check if we need to recompile
+	needs_compile = args.check_miniaudio or not os.path.exists(miniaudio_obj)
+	
+	if not needs_compile and os.path.exists(miniaudio_obj):
+		# Check if source files are newer than compiled object
+		obj_time = os.path.getmtime(miniaudio_obj)
+		
+		if os.path.exists(miniaudio_source) and os.path.getmtime(miniaudio_source) > obj_time:
+			needs_compile = True
+			print("miniaudio_impl.c is newer than precompiled object, recompiling...")
+		
+		if os.path.exists(miniaudio_header) and os.path.getmtime(miniaudio_header) > obj_time:
+			needs_compile = True
+			print("miniaudio.h is newer than precompiled object, recompiling...")
+	
+	if needs_compile:
+		print("Compiling miniaudio for web (this may take a moment)...")
+		miniaudio_flags = "-O3 -DMINIAUDIO_IMPLEMENTATION"
+		
+		# Add feature reduction flags to minimize compilation time and binary size
+		miniaudio_flags += " -DMA_NO_WASAPI -DMA_NO_DSOUND -DMA_NO_WINMM"
+		miniaudio_flags += " -DMA_NO_ALSA -DMA_NO_PULSE -DMA_NO_JACK"
+		miniaudio_flags += " -DMA_NO_COREAUDIO -DMA_NO_SNDIO -DMA_NO_AUDIO4 -DMA_NO_OSS"
+		miniaudio_flags += " -DMA_NO_AAUDIO -DMA_NO_OPENSL -DMA_NO_NULL"
+		
+		if args.debug:
+			miniaudio_flags = miniaudio_flags.replace("-O3", "-g")
+		
+		execute("emcc -c %s -o %s %s" % (miniaudio_source, miniaudio_obj, miniaudio_flags))
+		print("Miniaudio compiled successfully")
+	else:
+		print("Using cached miniaudio object")
+	
+	return miniaudio_obj
+
 def build_web():
 	out_dir = "build/web"
 	make_dirs(out_dir)
@@ -289,10 +337,12 @@ def build_web():
 
 	shutil.copyfile(os.path.join(odin_path, "core/sys/wasm/js/odin.js"), os.path.join(out_dir, "odin.js"))
 
-	# Compile miniaudio for web
-	print("Compiling miniaudio for web...")
-	miniaudio_flags = "-O3" if not args.debug else "-g"
-	execute("emcc -c source/web/miniaudio_impl.c -o %s/miniaudio.o %s -DMA_ENABLE_AUDIO_WORKLETS" % (out_dir, miniaudio_flags))
+	# Compile or use cached miniaudio for web
+	miniaudio_obj = compile_miniaudio_if_needed()
+	
+	# Copy miniaudio object to build directory for linking
+	build_miniaudio_obj = os.path.join(out_dir, "miniaudio.o")
+	shutil.copyfile(miniaudio_obj, build_miniaudio_obj)
 
 	os.environ["EMSDK_QUIET"] = "1"
 
@@ -300,7 +350,7 @@ def build_web():
 
 	emcc_files = [
 		"%s/game.wasm.o" % out_dir,
-        "%s/miniaudio.o" % out_dir,  # Add miniaudio object file
+		"%s/miniaudio.o" % out_dir,
 		"source/sokol/app/sokol_app_wasm_gl_" + wasm_lib_suffix,
 		"source/sokol/audio/sokol_audio_wasm_gl_" + wasm_lib_suffix,
 		"source/sokol/glue/sokol_glue_wasm_gl_" + wasm_lib_suffix,
@@ -315,7 +365,10 @@ def build_web():
 	# Note --preload-file assets, this bakes in the whole assets directory into
 	# the web build.
 	emcc_flags = "--shell-file source/web/index_template.html --preload-file assets -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sMAX_WEBGL_VERSION=2 -sASSERTIONS"
-	emcc_flags += " -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY"
+	emcc_flags += " -sASYNCIFY"
+	emcc_flags += " -Wl,--allow-multiple-definition"
+	# Export miniaudio functions for Odin foreign import
+	emcc_flags += " -sEXPORTED_FUNCTIONS='[\"_ma_engine_init\",\"_ma_engine_uninit\",\"_ma_sound_init_from_file\",\"_ma_sound_uninit\",\"_ma_sound_set_looping\",\"_ma_sound_seek_to_pcm_frame\",\"_ma_sound_start\",\"_ma_sound_stop\",\"_ma_sound_set_volume\"]'"
 
 	build_flags = ""
 
