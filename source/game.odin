@@ -1,19 +1,14 @@
 package game
 
 import "core:log"
-import "core:slice"
 import "core:fmt"
 import "core:strings"
 import "core:strconv"
 import "core:os"
+import "core:c"
 import "core:math/linalg"
-import "core:math/rand"
-import "core:image/png"
-import sa "core:container/small_array"
 
 import stbi "vendor:stb/image"
-import stbtt "vendor:stb/truetype"
-import ma "vendor:miniaudio"
 
 import sapp "sokol/app"
 import sg "sokol/gfx"
@@ -52,7 +47,7 @@ Game_Memory :: struct {
 
 
     resman: ^Resource_Manager,
-    audio_engine: ma.engine,
+    audio_system: Audio_System,
 
     sprite_renderer: Sprite_Renderer,
     particle_renderer: Particle_Renderer,
@@ -148,7 +143,7 @@ game_app_default_desc :: proc() -> sapp.Desc {
 
 @export
 game_init :: proc() {
-	context.logger = log.create_console_logger(.Warning)
+	context.logger = log.create_console_logger(.Info)
     log.info("### START Game Init ###")
 
 	g = new(Game_Memory)
@@ -214,12 +209,14 @@ game_init :: proc() {
     resman_load_texture(g.resman, "assets/powerup_sticky.png", "sticky")
     log.info("Finished loading textures")
 
-    audio_init(&g.audio_engine)
-    resman_load_sound(g.resman, "assets/music.mp3", "music")
-    resman_load_sound(g.resman, "assets/bleep.mp3", "hit-nonsolid")
-    resman_load_sound(g.resman, "assets/solid.wav", "hit-solid")
-    resman_load_sound(g.resman, "assets/powerup.wav", "get-powerup")
-    resman_load_sound(g.resman, "assets/bleep.wav", "hit-paddle")
+    audio_init(&g.audio_system)
+    log.info("Initialized audio system")
+
+    audio_load_sound(&g.audio_system, "assets/music.ogg", "music")
+    audio_load_sound(&g.audio_system, "assets/hit-nonsolid.ogg", "hit-nonsolid")
+    audio_load_sound(&g.audio_system, "assets/solid.wav", "hit-solid")
+    audio_load_sound(&g.audio_system, "assets/powerup.wav", "get-powerup")
+    audio_load_sound(&g.audio_system, "assets/bleep.wav", "hit-paddle")
     log.info("Finished loading sounds")
 
     text_renderer_init(&g.text_renderer, "assets/arial.ttf", 24)
@@ -241,7 +238,7 @@ game_init :: proc() {
 
     log.info("## END Game Init ###")
 
-    play_sound(g.resman^, "music")
+    play_sound(&g.audio_system, "music", true)
 }
 
 @export
@@ -255,7 +252,7 @@ game_frame :: proc() {
 update :: proc(dt: f32) {
     game_process_input(dt)
     ball_update(dt, g.width)
-    collisions_update(g.levels[g.level].bricks[:], g.resman^)
+    collisions_update(g.levels[g.level].bricks[:], &g.audio_system)
     particle_generator_update(&g.ball_pg, dt, g.ball, 2, {g.ball.radius / 2, g.ball.radius / 2})
     powerups_update(dt, &g.powerups)
     post_processor_update(&g.post_processor, dt)
@@ -488,6 +485,7 @@ game_cleanup :: proc() {
     text_renderer_cleanup(&g.text_renderer)
     post_processor_cleanup(g.post_processor)
     resman_cleanup(g.resman)
+    audio_cleanup(&g.audio_system)
 	free(g)
 }
 
@@ -544,14 +542,24 @@ entity_init :: proc(
 }
 
 read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32, i32) {
-    file := fmt.ctprintf("%v", file)
-    width, height, n_channels: i32
-    pixels := stbi.load(file, &width, &height, &n_channels, 4)
+    // First read the file into memory
+    file_data, ok := read_entire_file(file)
+    if !ok {
+        log.error("Failed to read image file:", file)
+        return nil, 0, 0, 0
+    }
+    defer delete(file_data)
+    
+    // Convert i32 to c.int for stbi
+    width, height, n_channels: c.int
+    pixels := stbi.load_from_memory(raw_data(file_data), c.int(len(file_data)), &width, &height, &n_channels, 4)
     if pixels == nil {
         log.error("Failed to load image")
         return nil, 0, 0, 0
     }
-    return pixels, width, height, n_channels
+    
+    // Convert c.int back to i32 for return
+    return pixels, i32(width), i32(height), i32(n_channels)
 }
 
 game_is_completed :: proc(level: Game_Level) -> bool {
@@ -604,37 +612,37 @@ game_level_load :: proc(game_level: ^Game_Level, file: string, level_width: u32,
     defer delete(lines)
 
     for row, y in lines {
-        trimmed := strings.trim_space(row)
-        if len(trimmed) == 0 do continue
+        trim_a := strings.trim_space(row)
+        if len(trim_a) == 0 do continue
 
-        chars, _ := strings.split(trimmed, " ")
+        chars, _ := strings.split(trim_a, " ")
         defer delete(chars)
 
         row_codes: [dynamic]Tile_Code
         for char, x in chars {
-            trimmed := strings.trim_space(char)
-            if len(char) == 0 do continue
+            trim_b := strings.trim_space(char)
+            if len(trim_b) == 0 do continue
 
-            val, ok := strconv.parse_int(char)
+            val, ok := strconv.parse_int(trim_b)
             if !ok {
-                log.error("Failed to parse int from tile_code:", char, "pos:", y, x)
+                log.error("Failed to parse int from tile_code:", trim_b, "pos:", y, x)
                 continue
             }
 
             code: Tile_Code
             switch val {
-                case 0:
-                    code = .Space
-                case 1:
-                    code = .Indestructible_Brick
-                case 2:
-                    code = .Brick_A
-                case 3:
-                    code = .Brick_B
-                case 4:
-                    code = .Brick_C
-                case 5:
-                    code = .Brick_D
+            case 0:
+                code = .Space
+            case 1:
+                code = .Indestructible_Brick
+            case 2:
+                code = .Brick_A
+            case 3:
+                code = .Brick_B
+            case 4:
+                code = .Brick_C
+            case 5:
+                code = .Brick_D
             }
             append(&row_codes, code)
         }

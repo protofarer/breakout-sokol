@@ -21,7 +21,7 @@ Particle_Generator :: struct {
 particle_generator_init :: proc(pg: ^Particle_Generator) {
     particles: sa.Small_Array(MAX_PARTICLES, Particle)
     particle := particle_init()
-    for i in 0..<MAX_PARTICLES {
+    for _ in 0..<MAX_PARTICLES {
         sa.push(&particles, particle)
     }
     pg^ = Particle_Generator {
@@ -31,10 +31,9 @@ particle_generator_init :: proc(pg: ^Particle_Generator) {
 
 }
 
-particle_generator_update :: proc(pg: ^Particle_Generator, dt: f32, object: Entity, n_new_particles: int, offset: Vec2 = {0,0}) {
+particle_generator_update :: proc(pg: ^Particle_Generator, dt: f32, object: Entity, n_new_particles: int = 2, offset: Vec2 = {0,0}) {
     // continuously generate particles
-    n_new_particles := 2
-    for i in 0..<n_new_particles {
+    for _ in 0..<n_new_particles {
         unused_particle := particle_generator_first_unused_particle(pg)
         particle_generator_respawn_particle(pg, sa.get_ptr(&pg.particles, unused_particle), object, offset)
     }

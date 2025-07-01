@@ -35,7 +35,7 @@ check_ball_box_collision :: proc(ball: Ball, box: Entity) -> Collision_Data {
 
 }
 
-collisions_update :: proc(bricks: []Brick, rm: Resource_Manager) {
+collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
     // for &box in g.levels[g.level].bricks {
     for &box in bricks {
         if !box.destroyed {
@@ -44,11 +44,11 @@ collisions_update :: proc(bricks: []Brick, rm: Resource_Manager) {
                 if !box.is_solid {
                     box.destroyed = true
                     powerups_spawn(box, &g.powerups)
-                    play_sound(rm, "hit-nonsolid")
+                    play_sound(as, "hit-nonsolid")
                 } else {
                     g.post_processor.shake_time = 0.1
                     g.post_processor.shake = true
-                    play_sound(rm, "hit-solid")
+                    play_sound(as, "hit-solid")
                 }
                 if !(g.ball.passthrough && !box.is_solid) {
                     dir := collision.direction
@@ -83,7 +83,7 @@ collisions_update :: proc(bricks: []Brick, rm: Resource_Manager) {
             if check_collision(g.player, p) {
                 powerup_activate(&p)
                 p.destroyed = true
-                play_sound(rm, "get-powerup")
+                play_sound(as, "get-powerup")
             }
         }
     }
@@ -99,7 +99,7 @@ collisions_update :: proc(bricks: []Brick, rm: Resource_Manager) {
         g.ball.velocity.y = -1 * abs(g.ball.velocity.y)
         g.ball.velocity = linalg.normalize0(g.ball.velocity) * speed
         g.ball.stuck = g.ball.sticky
-        play_sound(rm, "hit-paddle")
+        play_sound(as, "hit-paddle")
     }
 }
 

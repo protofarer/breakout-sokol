@@ -4,16 +4,15 @@ import "core:log"
 import "core:strings"
 import stbi "vendor:stb/image"
 import sg "sokol/gfx"
-import ma "vendor:miniaudio"
 
 Resource_Manager :: struct {
     textures: map[string]sg.Image,
-    sounds: map[string]^ma.sound,
+    // sounds: map[string]^ma.sound,
 }
 
 resman_init :: proc(rm: ^Resource_Manager) {
     rm.textures = make(map[string]sg.Image)
-    rm.sounds = make(map[string]^ma.sound)
+    // rm.sounds = make(map[string]^ma.sound)
 }
 
 resman_load_texture :: proc(rm: ^Resource_Manager, path: string, name: string) -> sg.Image {
@@ -59,33 +58,33 @@ resman_get_texture :: proc(rm: Resource_Manager, name: string) -> (sg.Image, boo
     return tex, exists
 }
 
-resman_load_sound :: proc(rm: ^Resource_Manager, file: string, name: string) -> ^ma.sound {
-    sound := new(ma.sound)
-
-    file_cstring := strings.clone_to_cstring(file)
-    result := ma.sound_init_from_file(&g.audio_engine, file_cstring, nil, nil, nil, sound)
-    delete(file_cstring)
-
-    if result != ma.result.SUCCESS {
-        log.error("Failef to load sound:", file)
-        free(sound)
-        return nil
-    } 
-
-    log.info("Load sound, file:", file, "name:", name)
-    g.resman.sounds[name] = sound
-    return g.resman.sounds[name]
-}
-
-resman_get_sound :: proc(rm: Resource_Manager, name: string) -> (^ma.sound, bool) {
-    sound, exists := rm.sounds[name]
-    if !exists do log.error("Failed to get sound:", name)
-    return sound, exists
-}
+// resman_load_sound :: proc(rm: ^Resource_Manager, file: string, name: string) -> ^ma.sound {
+//     sound := new(ma.sound)
+//
+//     file_cstring := strings.clone_to_cstring(file)
+//     result := ma.sound_init_from_file(&g.audio_engine, file_cstring, nil, nil, nil, sound)
+//     delete(file_cstring)
+//
+//     if result != ma.result.SUCCESS {
+//         log.error("Failef to load sound:", file)
+//         free(sound)
+//         return nil
+//     } 
+//
+//     log.info("Load sound, file:", file, "name:", name)
+//     g.resman.sounds[name] = sound
+//     return g.resman.sounds[name]
+// }
+//
+// resman_get_sound :: proc(rm: Resource_Manager, name: string) -> (^ma.sound, bool) {
+//     sound, exists := rm.sounds[name]
+//     if !exists do log.error("Failed to get sound:", name)
+//     return sound, exists
+// }
 
 resman_cleanup :: proc(rm: ^Resource_Manager) {
     delete(g.resman.textures)
-    for key, &val in g.resman.sounds {
-        ma.sound_uninit(val)
-    }
+    // for key, &val in g.resman.sounds {
+    //     ma.sound_uninit(val)
+    // }
 }
