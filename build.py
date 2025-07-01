@@ -288,12 +288,19 @@ def build_web():
 	odin_path = subprocess.run(["odin", "root"], capture_output=True, text=True).stdout
 
 	shutil.copyfile(os.path.join(odin_path, "core/sys/wasm/js/odin.js"), os.path.join(out_dir, "odin.js"))
+
+	# Compile miniaudio for web
+	print("Compiling miniaudio for web...")
+	miniaudio_flags = "-O3" if not args.debug else "-g"
+	execute("emcc -c source/web/miniaudio_impl.c -o %s/miniaudio.o %s -DMA_ENABLE_AUDIO_WORKLETS" % (out_dir, miniaudio_flags))
+
 	os.environ["EMSDK_QUIET"] = "1"
 
 	wasm_lib_suffix = "debug.a" if args.debug else "release.a"
 
 	emcc_files = [
 		"%s/game.wasm.o" % out_dir,
+        "%s/miniaudio.o" % out_dir,  # Add miniaudio object file
 		"source/sokol/app/sokol_app_wasm_gl_" + wasm_lib_suffix,
 		"source/sokol/audio/sokol_audio_wasm_gl_" + wasm_lib_suffix,
 		"source/sokol/glue/sokol_glue_wasm_gl_" + wasm_lib_suffix,
@@ -308,6 +315,7 @@ def build_web():
 	# Note --preload-file assets, this bakes in the whole assets directory into
 	# the web build.
 	emcc_flags = "--shell-file source/web/index_template.html --preload-file assets -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sMAX_WEBGL_VERSION=2 -sASSERTIONS"
+	emcc_flags += " -sAUDIO_WORKLET=1 -sWASM_WORKERS=1 -sASYNCIFY"
 
 	build_flags = ""
 
