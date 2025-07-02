@@ -362,20 +362,36 @@ render :: proc(dt: f32) {
     lives_text := fmt.tprintf("Lives: %v", g.lives)
     text_draw(&g.text_renderer, lives_text, UI_LIVES_POSITION.x, UI_LIVES_POSITION.y, TEXT_COLOR_WHITE)
     if g.state == .Menu {
-        text_draw_centered(&g.text_renderer, "BREAKOUT", 
-            f32(g.width)/2, f32(g.height)/2 - UI_MENU_TITLE_OFFSET, TEXT_COLOR_WHITE)
-        text_draw_centered(&g.text_renderer, "Press ENTER to start", 
-            f32(g.width)/2, f32(g.height)/2, TEXT_COLOR_LIGHT_GRAY)
-        text_draw_centered(&g.text_renderer, "Press W or S to select level", 
-            f32(g.width)/2, f32(g.height)/2 + UI_MENU_LINE_SPACING, TEXT_COLOR_GRAY)
-        text_draw_centered(&g.text_renderer, "A/D to move paddle", 
-            f32(g.width)/2, f32(g.height)/2 + UI_MENU_LINE_SPACING * 2, TEXT_COLOR_GRAY)
+        dy: f32 = UI_MENU_TITLE_OFFSET
+        text_draw_centered(&g.text_renderer, "BREAKOUT",
+            f32(g.width)/2,
+            f32(g.height)/2 + dy,
+            TEXT_COLOR_WHITE,
+        )
+        dy += UI_MENU_LINE_SPACING + 25
+        text_draw_centered(&g.text_renderer, "Press ENTER to start",
+            f32(g.width)/2,
+            f32(g.height)/2 + dy,
+            TEXT_COLOR_GREEN,
+        )
+        dy += UI_MENU_LINE_SPACING
+        text_draw_centered(&g.text_renderer, "Press W or S to select level",
+            f32(g.width)/2,
+            f32(g.height)/2 + dy,
+            TEXT_COLOR_LIGHT_GRAY,
+        )
+        dy += UI_MENU_LINE_SPACING
+        text_draw_centered(&g.text_renderer, "A/D to move paddle",
+            f32(g.width)/2,
+            f32(g.height)/2 + dy,
+            TEXT_COLOR_LIGHT_GRAY,
+        )
     }
     if g.state == .Win {
         text_draw_centered(&g.text_renderer, "YOU WIN!!!", 
             f32(g.width)/2, f32(g.height)/2 + 50, TEXT_COLOR_GREEN)
         text_draw_centered(&g.text_renderer, "Press ENTER to retry or ESC to quit", 
-            f32(g.width)/2, f32(g.height)/2 + 100, TEXT_COLOR_YELLOW)
+            f32(g.width)/2, f32(g.height)/2 + 100, TEXT_COLOR_LIGHT_GRAY)
     }
 
     text_renderer_flush(&g.text_renderer)
