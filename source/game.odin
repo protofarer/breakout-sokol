@@ -292,17 +292,9 @@ update :: proc(dt: f32) {
 }
 
 render :: proc(dt: f32) {
-    msaa_pass_action := sg.Pass_Action {
-        colors = {
-            0 = {
-                load_action = .CLEAR, 
-                clear_value = BACKGROUND_COLOR
-            },
-        },
-    }
     // Render scene to MSAA fb
     sg.begin_pass({ 
-        action = msaa_pass_action, 
+        action = g.post_processor.msaa_pass_action, 
         attachments = g.post_processor.msaa_attachments,
     })
     sg.apply_viewport(0, 0, i32(g.width), i32(g.height), true)
@@ -399,15 +391,7 @@ render :: proc(dt: f32) {
     sg.end_pass()
 
     // Render postprocessed fullscreen quad
-    fullscreen_pass_action := sg.Pass_Action {
-        colors = { 
-            0 = { 
-                load_action = .CLEAR, 
-                clear_value = BACKGROUND_COLOR 
-            },
-        },
-    }
-    sg.begin_pass({action = fullscreen_pass_action, swapchain = sglue.swapchain()})
+    sg.begin_pass({action = g.post_processor.fullscreen_clear_pass_action, swapchain = sglue.swapchain()})
         sg.apply_viewport(g.viewport_x, g.viewport_y, g.viewport_width, g.viewport_height, true)
         sg.apply_pipeline(g.post_processor.pip)
         sg.apply_bindings(g.post_processor.bind)

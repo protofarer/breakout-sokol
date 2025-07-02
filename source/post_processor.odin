@@ -9,6 +9,8 @@ Post_Processor :: struct {
     msaa_attachments: sg.Attachments,
     msaa_color_img: sg.Image,
     msaa_depth_img: sg.Image,
+    msaa_pass_action: sg.Pass_Action,
+    fullscreen_clear_pass_action: sg.Pass_Action,
 
     // Regular framebuffer with texture attachment
     resolve_color_img: sg.Image,
@@ -39,6 +41,24 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
 
     pp.width = width
     pp.height = height
+
+    pp.msaa_pass_action = sg.Pass_Action {
+        colors = {
+            0 = {
+                load_action = .CLEAR, 
+                clear_value = BACKGROUND_COLOR
+            },
+        },
+    }
+
+    pp.fullscreen_clear_pass_action = sg.Pass_Action {
+        colors = { 
+            0 = { 
+                load_action = .CLEAR, 
+                clear_value = BACKGROUND_COLOR 
+            },
+        },
+    }
 
     // ms color attach
     pp.msaa_color_img = sg.make_image({
