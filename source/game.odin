@@ -137,7 +137,12 @@ game_app_default_desc :: proc() -> sapp.Desc {
 		window_title = "Breakout",
 		icon = { sokol_default = true },
 		logger = { func = slog.func },
-		html5_update_document_title = true,
+		// html5_canvas_selector = "#canvas",
+		// html5_canvas_resize = true,
+		// html5_update_document_title = true,
+		// Force WebGL 1.0 to avoid version 0 error
+		gl_major_version = 3,
+		// gl_minor_version = 0,
 	}
 }
 

@@ -364,11 +364,19 @@ def build_web():
 
 	# Note --preload-file assets, this bakes in the whole assets directory into
 	# the web build.
-	emcc_flags = "--shell-file source/web/index_template.html --preload-file assets -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sMAX_WEBGL_VERSION=2 -sASSERTIONS"
+	emcc_flags = "--shell-file source/web/index_template.html --preload-file assets -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sASSERTIONS"
 	emcc_flags += " -sASYNCIFY"
 	emcc_flags += " -Wl,--allow-multiple-definition"
+	# Memory configuration to prevent "initial memory could not be allocated" errors
+	# emcc_flags += " -sINITIAL_MEMORY=33554432"  # 32MB initial memory (up fr m 16MB default)
+	emcc_flags += " -sALLOW_MEMORY_GROWTH=1"    # Enable dynamic memory growth
+	# emcc_flags += " -sMAXIMUM_MEMORY=134217728"  # 128MB maximum memory
+	# WebGL compatibility and stability fixes
+	# emcc_flags += " -sOFFSCREEN_FRAMEBUFFER=1"   # Enable offscreen framebuffer support
+	# emcc_flags += " -sGL_SUPPORT_AUTOMATIC_ENABLE_EXTENSIONS=1"  # Auto-enable extensions
+	# emcc_flags += " -sGL_TESTING=1"              # Set preserveDrawingBuffer for stability
 	# Export miniaudio functions for Odin foreign import
-	emcc_flags += " -sEXPORTED_FUNCTIONS='[\"_ma_engine_init\",\"_ma_engine_uninit\",\"_ma_sound_init_from_file\",\"_ma_sound_uninit\",\"_ma_sound_set_looping\",\"_ma_sound_seek_to_pcm_frame\",\"_ma_sound_start\",\"_ma_sound_stop\",\"_ma_sound_set_volume\"]'"
+	# emcc_flags += " -sEXPORTED_FUNCTIONS='[\"_ma_engine_init\",\"_ma_engine_uninit\",\"_ma_sound_init_from_file\",\"_ma_sound_uninit\",\"_ma_sound_set_looping\",\"_ma_sound_seek_to_pcm_frame\",\"_ma_sound_start\",\"_ma_sound_stop\",\"_ma_sound_set_volume\"]'"
 
 	build_flags = ""
 

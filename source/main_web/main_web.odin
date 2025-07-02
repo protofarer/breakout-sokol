@@ -28,6 +28,10 @@ main :: proc() {
 	app_desc.cleanup_cb = cleanup
 	app_desc.event_cb = event
 
+	// DEBUG: Final check before sapp.run
+	log.infof("FINAL before sapp.run - gl_major_version: %d, gl_minor_version: %d", 
+	          app_desc.gl_major_version, app_desc.gl_minor_version)
+
 	// On web this will not block. Any line after this one will run immediately!
 	// Do any on-shutdown stuff in the `cleanup` proc.
 	sapp.run(app_desc)
