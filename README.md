@@ -1,15 +1,17 @@
 # Breakout Sokol
 - Started with the OpenGL breakout example in C [learn OpenGL](https://learnopengl.com/In-Practice/2D-Game/Breakout)
 - Rewrite in Odin
-- Use Sokol instead of GLFW and use Zylinski's hot reload and sokol template
+- Replace GLFW and use sokol + Zylinski's hot reload and sokol template
 - Add resource management
 - Use miniaudio
 - Use stb/image
 - Use stb/truetype
 - Batch text draw calls
-- Error handling
-- Replace magic numbers with constants
 - Resizable window, maintains aspect ratio
+
+---
+
+below from [hot reload + sokol template repo](https://github.com/karl-zylinski/odin-sokol-hot-reload-template)
 
 # Hot reloading and build guide
 
