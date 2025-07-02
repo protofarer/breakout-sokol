@@ -3,7 +3,7 @@ Purpose of this project is to lay the foundation for future iterations and gamed
 
 From a features standpoint this repo is considered done, future changes include refactors, renaming, and other minor development. For example, I expect to use this repo as a starting point for my own version of Breakout, implementing and designing effects that use a Particle Renderer or add an interesting mechanic that transforms gameplay.
 
-Changes beyond the tutorial in C and OpenGL 3.3 ([learn OpenGL](https://learnopengl.com/In-Practice/2D-Game/Breakout)):
+This repo is effectively a set of changes beyond the learnopengl tutorial in C and OpenGL 3.3 ([learn OpenGL](https://learnopengl.com/In-Practice/2D-Game/Breakout)):
 - Rewrite in Odin
 - Replace GLFW and use sokol + Zylinski's hot reload and sokol template
 - Use miniaudio, stb/image, stb/truetype
