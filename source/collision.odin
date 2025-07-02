@@ -46,7 +46,7 @@ collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
                     powerups_spawn(box, &g.powerups)
                     play_sound(as, "hit-nonsolid")
                 } else {
-                    g.post_processor.shake_time = 0.1
+                    g.post_processor.shake_time = SHAKE_DURATION
                     g.post_processor.shake = true
                     play_sound(as, "hit-solid")
                 }
@@ -93,7 +93,7 @@ collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
         center_board := g.player.position.x + (g.player.size.x / 2)
         distance := g.ball.position.x + g.ball.radius - center_board
         pct := distance / (g.player.size.x / 2)
-        strength :f32= 2
+        strength :f32= PADDLE_BOUNCE_STRENGTH
         speed := linalg.length(g.ball.velocity)
         g.ball.velocity.x = BALL_INITIAL_VELOCITY.x * pct * strength
         g.ball.velocity.y = -1 * abs(g.ball.velocity.y)

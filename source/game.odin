@@ -20,15 +20,34 @@ LOGICAL_H :: 1080
 
 PLAYER_SIZE :: Vec2{150, 30}
 PLAYER_VELOCITY :: 1000
+PLAYER_COLOR :: Vec3{1,1,1}
+PADDLE_BOUNCE_STRENGTH :: 2
+INITIAL_LIVES :: 3
 
 BALL_RADIUS :: 16
+BALL_SIZE :: Vec2{ BALL_RADIUS * 2, BALL_RADIUS * 2}
 BALL_INITIAL_VELOCITY :: Vec2{200, -700}
+BALL_COLOR :: Vec3{1,1,1}
+
+UI_LIVES_POSITION :: Vec2{50, 50}
+UI_MENU_TITLE_OFFSET :: 50
+UI_MENU_LINE_SPACING :: 30
+
+BACKGROUND_COLOR :: sg.Color{0.1, 0.1, 0.1, 1}
+TEXT_COLOR_WHITE :: Vec3{1, 1, 1}
+TEXT_COLOR_LIGHT_GRAY :: Vec3{0.8, 0.8, 0.8}
+TEXT_COLOR_GRAY :: Vec3{0.6, 0.6, 0.6}
+TEXT_COLOR_GREEN :: Vec3{0, 1, 0}
+TEXT_COLOR_YELLOW :: Vec3{1, 1, 0}
+
+MSAA_SAMPLE_COUNT :: 4
+SHAKE_DURATION :: 0.1
+DEFAULT_FONT_SIZE :: 24
 
 Vec2 :: [2]f32
-Vec2i :: [2]i32
 Vec3 :: [3]f32
 Vec4 :: [4]f32
-Mat4 :: matrix[4,4]f32
+Mat4f32 :: matrix[4,4]f32
 
 Game_Memory :: struct {
 	width: u32,
@@ -44,7 +63,6 @@ Game_Memory :: struct {
     level: u32,
     powerups: [dynamic]Powerup,
     lives: i32,
-
 
     resman: ^Resource_Manager,
     audio_system: Audio_System,
@@ -133,16 +151,15 @@ game_app_default_desc :: proc() -> sapp.Desc {
 	return {
 		width = LOGICAL_W,
 		height = LOGICAL_H,
-		sample_count = 4,
+		sample_count = MSAA_SAMPLE_COUNT,
 		window_title = "Breakout",
 		icon = { sokol_default = true },
 		logger = { func = slog.func },
+		gl_major_version = 3,
+		gl_minor_version = 0,
 		// html5_canvas_selector = "#canvas",
 		// html5_canvas_resize = true,
 		// html5_update_document_title = true,
-		// Force WebGL 1.0 to avoid version 0 error
-		gl_major_version = 3,
-		// gl_minor_version = 0,
 	}
 }
 
@@ -177,7 +194,7 @@ game_init :: proc() {
     g.screen_height = LOGICAL_H
     g.viewport_width = LOGICAL_W
     g.viewport_height = LOGICAL_H
-    g.lives = 3
+    g.lives = INITIAL_LIVES
 
     update_viewport_and_projection(u32(sapp.width()), u32(sapp.height()))
 
@@ -224,7 +241,7 @@ game_init :: proc() {
     audio_load_sound(&g.audio_system, "assets/bleep.wav", "hit-paddle")
     log.info("Finished loading sounds")
 
-    text_renderer_init(&g.text_renderer, "assets/arial.ttf", 24)
+    text_renderer_init(&g.text_renderer, "assets/arial.ttf", DEFAULT_FONT_SIZE)
     log.info("Initialized text renderer")
 
     one, two, three, four: Game_Level
@@ -239,7 +256,7 @@ game_init :: proc() {
     g.level = 0
 
     player_init(&g.player, g.width, g.height)
-    ball_init(&g.ball, g.player, BALL_RADIUS, BALL_INITIAL_VELOCITY)
+    ball_init(&g.ball, g.player, BALL_INITIAL_VELOCITY)
 
     log.info("## END Game Init ###")
 
@@ -283,7 +300,7 @@ update :: proc(dt: f32) {
 
 render :: proc(dt: f32) {
     msaa_pass_action := sg.Pass_Action {
-        colors = { 0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 }}},
+        colors = { 0 = { load_action = .CLEAR, clear_value = BACKGROUND_COLOR }},
     }
     // Render scene to MSAA fb
     sg.begin_pass({ 
@@ -344,22 +361,22 @@ render :: proc(dt: f32) {
 
     // Text
     lives_text := fmt.tprintf("Lives: %v", g.lives)
-    text_draw(&g.text_renderer, lives_text, 50, 50, {1, 1, 1})
+    text_draw(&g.text_renderer, lives_text, UI_LIVES_POSITION.x, UI_LIVES_POSITION.y, TEXT_COLOR_WHITE)
     if g.state == .Menu {
         text_draw_centered(&g.text_renderer, "BREAKOUT", 
-            f32(g.width)/2, f32(g.height)/2 - 50, {1, 1, 1})
+            f32(g.width)/2, f32(g.height)/2 - UI_MENU_TITLE_OFFSET, TEXT_COLOR_WHITE)
         text_draw_centered(&g.text_renderer, "Press ENTER to start", 
-            f32(g.width)/2, f32(g.height)/2, {0.8, 0.8, 0.8})
+            f32(g.width)/2, f32(g.height)/2, TEXT_COLOR_LIGHT_GRAY)
         text_draw_centered(&g.text_renderer, "Press W or S to select level", 
-            f32(g.width)/2, f32(g.height)/2 + 30, {0.6, 0.6, 0.6})
+            f32(g.width)/2, f32(g.height)/2 + UI_MENU_LINE_SPACING, TEXT_COLOR_GRAY)
         text_draw_centered(&g.text_renderer, "A/D to move paddle", 
-            f32(g.width)/2, f32(g.height)/2 + 60, {0.6, 0.6, 0.6})
+            f32(g.width)/2, f32(g.height)/2 + UI_MENU_LINE_SPACING * 2, TEXT_COLOR_GRAY)
     }
     if g.state == .Win {
         text_draw_centered(&g.text_renderer, "YOU WIN!!!", 
-            f32(g.width)/2, f32(g.height)/2, {0, 1, 0})
+            f32(g.width)/2, f32(g.height)/2 + 50, TEXT_COLOR_GREEN)
         text_draw_centered(&g.text_renderer, "Press ENTER to retry or ESC to quit", 
-            f32(g.width)/2, f32(g.height)/2 + 50, {1, 1, 0})
+            f32(g.width)/2, f32(g.height)/2 + 100, TEXT_COLOR_YELLOW)
     }
 
     text_renderer_flush(&g.text_renderer)
@@ -368,7 +385,7 @@ render :: proc(dt: f32) {
 
     // Render postprocessed fullscreen quad
     fullscreen_pass_action := sg.Pass_Action {
-        colors = { 0 = { load_action = .CLEAR, clear_value = { 0.1, 0.1, 0.1, 1 }}},
+        colors = { 0 = { load_action = .CLEAR, clear_value = BACKGROUND_COLOR }},
     }
     sg.begin_pass({ action = fullscreen_pass_action, swapchain = sglue.swapchain() })
         sg.apply_viewport(g.viewport_x, g.viewport_y, g.viewport_width, g.viewport_height, true)
@@ -390,10 +407,11 @@ player_init :: proc(player: ^Player, game_width: u32, game_height: u32) {
         position = pos, 
         size = PLAYER_SIZE, 
         texture_name = "paddle",
+        color = PLAYER_COLOR,
     )
 }
 
-compute_projection :: proc() -> matrix[4,4]f32 {
+compute_projection :: proc() -> Mat4f32 {
 	proj := linalg.matrix_ortho3d_f32(0, f32(g.width), f32(g.height), 0, -1, 1)
     return proj
 }
@@ -520,7 +538,7 @@ game_force_restart :: proc() -> bool {
 game_reset_player :: proc() {
     g.player.size = PLAYER_SIZE
     g.player.position = Vec2{f32(g.width) / 2 - (g.player.size.x / 2), f32(g.height) - PLAYER_SIZE.y}
-    ball_reset(g.player.position + Vec2{PLAYER_SIZE.x / 2 - BALL_RADIUS, -(BALL_RADIUS * 2)}, BALL_INITIAL_VELOCITY)
+    ball_reset(g.player.position + Vec2{PLAYER_SIZE.x / 2 - BALL_RADIUS, -(BALL_RADIUS * 2)})
 
     g.post_processor.chaos = false
     g.post_processor.confuse = false
@@ -547,23 +565,20 @@ entity_init :: proc(
 }
 
 read_image_from_file :: proc(file: string) -> ([^]byte, i32, i32, i32) {
-    // First read the file into memory
     file_data, ok := read_entire_file(file)
     if !ok {
         log.error("Failed to read image file:", file)
         return nil, 0, 0, 0
     }
     defer delete(file_data)
-    
-    // Convert i32 to c.int for stbi
+
     width, height, n_channels: c.int
     pixels := stbi.load_from_memory(raw_data(file_data), c.int(len(file_data)), &width, &height, &n_channels, 4)
     if pixels == nil {
         log.error("Failed to load image")
         return nil, 0, 0, 0
     }
-    
-    // Convert c.int back to i32 for return
+
     return pixels, i32(width), i32(height), i32(n_channels)
 }
 
@@ -579,6 +594,7 @@ game_is_completed :: proc(level: Game_Level) -> bool {
 ball_update :: proc(dt: f32, window_width: u32) {
     if !g.ball.stuck {
         g.ball.position += g.ball.velocity * dt
+
         if g.ball.position.x < 0 {
             g.ball.velocity.x *= -1
             g.ball.position.x = 0
@@ -586,6 +602,7 @@ ball_update :: proc(dt: f32, window_width: u32) {
             g.ball.velocity.x *= -1
             g.ball.position.x = f32(window_width) - g.ball.size.x
         }
+
         if g.ball.position.y < 0 {
             g.ball.velocity.y *= -1
             g.ball.position.y = 0
@@ -593,9 +610,11 @@ ball_update :: proc(dt: f32, window_width: u32) {
     }
 }
 
-ball_reset :: proc(position: Vec2, velocity: Vec2) {
+ball_reset :: proc(position: Vec2) {
     g.ball.position = position
-    g.ball.velocity = velocity
+    g.ball.velocity = BALL_INITIAL_VELOCITY
+    g.ball.size = BALL_SIZE
+    g.ball.color = BALL_COLOR
     g.ball.stuck = true
     g.ball.sticky = false
     g.ball.passthrough = false
@@ -727,7 +746,7 @@ game_reset_level :: proc() {
         game_level_load(&g.levels[3], "assets/four.lvl", g.width, g.height/2)
     }
     clear(&g.powerups)
-    g.lives = 3
+    g.lives = INITIAL_LIVES
 }
 
 read_file_to_string :: proc(path: string) -> string {
@@ -775,14 +794,21 @@ update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
     }
 }
 
-ball_init :: proc(ball: ^Ball, player: Player, radius: f32 = 12.5, velocity: Vec2) {
+ball_init :: proc(ball: ^Ball, player: Player, velocity: Vec2) {
     pos := player.position + Vec2 { 
         f32(PLAYER_SIZE.x) / 2 - BALL_RADIUS, 
         -BALL_RADIUS * 2,
     }
-    entity_init(&ball.entity, pos, Vec2{ radius * 2, radius * 2}, Vec3{1,1,1}, velocity, "ball")
+    entity_init(
+        entity = &ball.entity, 
+        position = pos, 
+        size = BALL_SIZE,
+        color = BALL_COLOR, 
+        velocity = velocity, 
+        texture_name = "ball"
+    )
     ball.stuck = true
-    ball.radius = radius
+    ball.radius = BALL_RADIUS
 }
 
 create_and_load_white_texture :: proc(rm: ^Resource_Manager) {

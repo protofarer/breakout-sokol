@@ -5,6 +5,11 @@ import sa "core:container/small_array"
 import sg "sokol/gfx"
 
 MAX_PARTICLES :: 500
+PARTICLE_POSITION_VARIANCE :: 5
+PARTICLE_COLOR_MIN :: 0.5
+PARTICLE_COLOR_MAX :: 1.0
+PARTICLE_VELOCITY_SCALE :: 0.1
+PARTICLE_ALPHA_FADE_RATE :: 2.5
 
 Particle :: struct {
     position, velocity: Vec2,
@@ -42,7 +47,7 @@ particle_generator_update :: proc(pg: ^Particle_Generator, dt: f32, object: Enti
         p.life -= dt
         if p.life > 0 {
             p.position -= p.velocity * dt
-            p.color.a -= dt * 2.5
+            p.color.a -= dt * PARTICLE_ALPHA_FADE_RATE
         }
     }
 }
@@ -65,14 +70,14 @@ particle_generator_first_unused_particle :: proc(pg: ^Particle_Generator) -> int
 }
 
 particle_generator_respawn_particle :: proc(pg: ^Particle_Generator, particle: ^Particle, object: Entity, offset: Vec2 = {0,0}) {
-    rgn := rand.float32_range(-5, 5)
+    rgn := rand.float32_range(-PARTICLE_POSITION_VARIANCE, PARTICLE_POSITION_VARIANCE)
     particle.position = object.position + rgn + offset
 
-    random_color := rand.float32_range(0.5, 1.0)
+    random_color := rand.float32_range(PARTICLE_COLOR_MIN, PARTICLE_COLOR_MAX)
     particle.color = {random_color, random_color, random_color, 1.0}
 
     particle.life = 1
-    particle.velocity = object.velocity * 0.1
+    particle.velocity = object.velocity * PARTICLE_VELOCITY_SCALE
 }
 
 particle_init :: proc() -> Particle {

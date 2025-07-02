@@ -40,7 +40,7 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
         width = width,
         height = height,
         pixel_format = .RGBA8,
-        sample_count = 4, // 4x MSAA
+        sample_count = MSAA_SAMPLE_COUNT, // 4x MSAA
         label = "msaa-color",
     })
 

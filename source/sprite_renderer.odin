@@ -14,7 +14,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
     // 1. Create the quad geometry (same as OpenGL version)
     vertices := [?]Vertex {
         {0, 1, 0, 1},  // bottom-left
-        {1, 0, 1, 0},  // top-right  
+        {1, 0, 1, 0},  // top-right
         {0, 0, 0, 0},  // top-left
 
         {0, 1, 0, 1},  // bottom-left
@@ -91,7 +91,7 @@ sprite_renderer_cleanup :: proc(sr: Sprite_Renderer) {
 }
 
 // 2D, rotation in degrees
-compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4 {
+compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4f32 {
 	proj := compute_projection()
     model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
     model = linalg.matrix4_translate(Vec3{-0.5 * size.x, -0.5 * size.y, 0}) * model
@@ -103,10 +103,10 @@ compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotatio
 
 
 draw_sprite :: proc(sr: ^Sprite_Renderer, rm: Resource_Manager, position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, texture_name: string = "", color: Vec3 = {1,1,1}) {
-    // 1. Compute transformation matrix and combine with projection
+    // Compute transformation matrix and combine with projection
     mvp := compute_sprite_mvp(position, size, rotation)
 
-    // 2. Prepare shader uniforms
+    // Prepare shader uniforms
 	sprite_vs_params := Sprite_Vs_Params {
 		mvp = mvp,
 	}
@@ -114,14 +114,14 @@ draw_sprite :: proc(sr: ^Sprite_Renderer, rm: Resource_Manager, position: Vec2, 
 		sprite_color = color,
 	}
 
-    // bind texture
+    // Bind texture
     if tex, exists := resman_get_texture(rm, texture_name); exists {
         sr.bind.images[IMG_tex] = tex
     } else {
         sr.bind.images[IMG_tex], _ = resman_get_texture(rm, "white")
     }
 
-    // 4. Issue draw commands
+    // Issue draw commands
     sg.apply_bindings(sr.bind)
 	sg.apply_uniforms(UB_sprite_vs_params, { ptr = &sprite_vs_params, size = size_of(sprite_vs_params) })
 	sg.apply_uniforms(UB_sprite_fs_params, { ptr = &sprite_fs_params, size = size_of(sprite_fs_params) })

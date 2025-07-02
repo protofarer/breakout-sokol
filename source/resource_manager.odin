@@ -37,8 +37,9 @@ resman_load_texture :: proc(rm: ^Resource_Manager, path: string, name: string) -
         label = strings.clone_to_cstring(name),
     })
     if sg.query_image_state(img) != .VALID {
-        log.error("Failed to create image for:", name)
-        return {}
+        log.error("Failed to create image for:", name, ". Falling back to placeholder texture")
+        tex_white, exists := resman_get_texture(rm^, "white")
+        return tex_white
     }
 
     resman_set_texture(rm, name, img)
