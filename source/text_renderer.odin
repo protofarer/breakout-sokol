@@ -28,8 +28,13 @@ Character :: struct {
     u0,v0,u1,v1: f32,
 }
 
+Text_Vertex :: struct {
+    x, y: f32,
+    u, v: f32,
+}
+
 Text_Batch :: struct {
-    vertices: [dynamic]f32,
+    vertices: [dynamic]Text_Vertex,
     draw_commands: [dynamic]Text_Draw_Command,
 }
 
@@ -60,7 +65,7 @@ text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32
     create_font_atlas(tr, &font_info, font_size)
 
     tr.vertex_buffer = sg.make_buffer({
-        size = MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * N_FLOATS_PER_VERTEX * size_of(f32),
+        size = MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * size_of(Text_Vertex),
         usage = { stream_update = true },
         label = "text-vertices",
     })
@@ -79,7 +84,8 @@ text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32
         shader = shader,
         layout = {
             attrs = {
-                ATTR_text_vertex = { format = .FLOAT4 },
+                ATTR_text_pos = { format = .FLOAT2 },
+                ATTR_text_tex_coords = { format = .FLOAT2 },
             },
         },
         colors = {
@@ -94,7 +100,7 @@ text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32
         label = "text-pipeline",
     })
 
-    tr.batch.vertices = make([dynamic]f32, 0, MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * N_FLOATS_PER_VERTEX)
+    tr.batch.vertices = make([dynamic]Text_Vertex, 0, MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR)
     tr.batch.draw_commands = make([dynamic]Text_Draw_Command, 0, 32)
 
     log.info("Initialized text renderer")
@@ -106,7 +112,7 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
     // Single buffer update for all text
     sg.update_buffer(tr.vertex_buffer, {
         ptr = raw_data(tr.batch.vertices),
-        size = uint(len(tr.batch.vertices) * size_of(f32)),
+        size = uint(len(tr.batch.vertices) * size_of(Text_Vertex)),
     })
 
     sg.apply_pipeline(tr.pip)
@@ -226,7 +232,7 @@ text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1,
         return
     }
 
-    start_vertex := i32(len(tr.batch.vertices) / 4)
+    start_vertex := i32(len(tr.batch.vertices))
     initial_vertices := len(tr.batch.vertices)
 
     pen_x := x
@@ -242,14 +248,30 @@ text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1,
             y0 := pen_y + char.offset_y
             x1 := x0 + f32(char.width)
             y1 := y0 + f32(char.height)
-
-            append(&tr.batch.vertices, x0, y0, char.u0, char.v0) // top-left
-            append(&tr.batch.vertices, x1, y0, char.u1, char.v0) // top-right
-            append(&tr.batch.vertices, x0, y1, char.u0, char.v1) // bottom-left
-
-            append(&tr.batch.vertices, x1, y0, char.u1, char.v0) // top-right
-            append(&tr.batch.vertices, x1, y1, char.u1, char.v1) // bottom-right
-            append(&tr.batch.vertices, x0, y1, char.u0, char.v1) // bottom-left
+            // top-left
+            append(&tr.batch.vertices, Text_Vertex{
+                x0, y0, char.u0, char.v0
+            })
+            // top-right
+            append(&tr.batch.vertices, Text_Vertex{
+                x1, y0, char.u1, char.v0
+            })
+            // bottom-left
+            append(&tr.batch.vertices, Text_Vertex{
+                x0, y1, char.u0, char.v1
+            })
+            // top-right
+            append(&tr.batch.vertices, Text_Vertex{
+                x1, y0, char.u1, char.v0
+            })
+            // bottom-right
+            append(&tr.batch.vertices, Text_Vertex{
+                x1, y1, char.u1, char.v1
+            })
+            // bottom-left
+            append(&tr.batch.vertices, Text_Vertex{
+                x0, y1, char.u0, char.v1
+            })
         }
         pen_x += char.advance
     }
@@ -257,7 +279,7 @@ text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1,
     if len(tr.batch.vertices) > initial_vertices {
         append(&tr.batch.draw_commands, Text_Draw_Command {
             start_vertex = start_vertex,
-            num_vertices = i32((len(tr.batch.vertices) - initial_vertices) / 4),
+            num_vertices = i32((len(tr.batch.vertices) - initial_vertices)),
             color = color,
         })
     }

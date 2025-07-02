@@ -29,6 +29,11 @@ Post_Processor :: struct {
     fs_params: Postprocess_Fs_Params,
 }
 
+Post_Processor_Vertex :: struct {
+    x, y: f32,
+    u, v: f32,
+}
+
 post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     log.info("Initializing post processor...")
 
@@ -84,12 +89,12 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     })
 
     // Create quad geometry
-    vertices := [?]f32{
+    vertices := [?]Post_Processor_Vertex{
         // pos      // tex
-        -1, -1,     0, 0,
-         1, -1,     1, 0,
-        -1,  1,     0, 1,
-         1,  1,     1, 1,
+        {-1, -1,    0, 0},
+        { 1, -1,    1, 0},
+        {-1,  1,    0, 1},
+        { 1,  1,    1, 1},
     }
 
     pp.bind.vertex_buffers[0] = sg.make_buffer({
@@ -110,7 +115,8 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
         shader = shader,
         layout = {
             attrs = {
-                ATTR_postprocess_vertex = {format = .FLOAT4},
+                ATTR_postprocess_pos = {format = .FLOAT2},
+                ATTR_postprocess_tex_coords = {format = .FLOAT2},
             },
         },
         primitive_type = .TRIANGLE_STRIP,

@@ -9,23 +9,24 @@ Sprite_Renderer :: struct {
     bind: sg.Bindings,
 }
 
+Sprite_Vertex :: struct {
+    x, y: f32,
+    u, v: f32,
+}
+
 sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
     log.info("Initializing sprite renderer...")
 
     // Create the quad geometry
-    Vertex :: struct {
-        x, y: f32,
-        u, v: f32,
-    }
+    vertices := [?]Sprite_Vertex{
+        // pos  // tex
+        {0, 1,  0, 1},  // bottom-left
+        {1, 0,  1, 0},  // top-right
+        {0, 0,  0, 0},  // top-left
 
-    vertices := [?]Vertex {
-        {0, 1, 0, 1},  // bottom-left
-        {1, 0, 1, 0},  // top-right
-        {0, 0, 0, 0},  // top-left
-
-        {0, 1, 0, 1},  // bottom-left
-        {1, 1, 1, 1},  // bottom-right
-        {1, 0, 1, 0},  // top-right
+        {0, 1,  0, 1},  // bottom-left
+        {1, 1,  1, 1},  // bottom-right
+        {1, 0,  1, 0},  // top-right
     }
 
     // Create vertex buffer
@@ -67,7 +68,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
 		layout = {
 			attrs = {
 				ATTR_sprite_pos = { format = .FLOAT2 },
-				ATTR_sprite_texcoord0 = { format = .FLOAT2 },
+				ATTR_sprite_tex_coords = { format = .FLOAT2 },
 			},
 		},
         colors = {

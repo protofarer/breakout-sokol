@@ -9,20 +9,26 @@ Particle_Renderer :: struct {
     projection: matrix[4,4]f32,
 }
 
+Particle_Vertex :: struct {
+    x, y: f32,
+    u, v: f32,
+}
+
 particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
     log.info("Initializing particle renderer...")
 
     pr.projection = compute_projection()
 
     // Create the quad geometry
-    particle_quad := [?]f32 {
-        0.0, 1.0, 0.0, 1.0,
-        1.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 0.0,
+    particle_quad := [?]Particle_Vertex{
+        // pos  // tex
+        {0, 1,  0, 1},
+        {1, 0,  1, 0},
+        {0, 0,  0, 0},
 
-        0.0, 1.0, 0.0, 1.0,
-        1.0, 1.0, 1.0, 1.0,
-        1.0, 0.0, 1.0, 0.0,
+        {0, 1,  0, 1},
+        {1, 1,  1, 1},
+        {1, 0,  1, 0},
     }
 
     // Create vertex buffer
@@ -63,7 +69,8 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
         shader = shader,
         layout = {
             attrs = {
-                    ATTR_particle_vertex = {format = .FLOAT4},
+                    ATTR_particle_pos = {format = .FLOAT2},
+                    ATTR_particle_tex_coords = {format = .FLOAT2},
             },
         },
         colors = {

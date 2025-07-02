@@ -17,13 +17,13 @@ layout(binding=0) uniform sprite_vs_params {
 };
 
 in vec2 pos;
-in vec2 texcoord0;
+in vec2 tex_coords;
 
 out vec2 uv;
 
 void main() {
     gl_Position = mvp * vec4(pos, 0.0f, 1.0f);
-    uv = texcoord0;
+    uv = tex_coords;
 }
 @end
 
@@ -38,8 +38,6 @@ in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-    // frag_color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // frag_color = texture(sampler2D(tex, smp), uv) ; //* color;
     frag_color = vec4(sprite_color, 1.0) * texture(sampler2D(tex, smp), uv);
 }
 @end
@@ -52,32 +50,30 @@ void main() {
 layout(binding=0) uniform particle_vs_params {
     mat4 projection;
     vec2 offset;
-    vec4 color;
 };
-in vec4 vertex;
-out vec2 TexCoords;
-out vec4 ParticleColor;
+in vec2 pos;
+in vec2 tex_coords;
+out vec2 uv;
 
 void main() {
     float scale = 10.0f;
-    TexCoords = vertex.zw;
-    ParticleColor = color;
-    gl_Position = projection * vec4((vertex.xy * scale) + offset, 0.0f, 1.0f);
+    uv = tex_coords;
+    gl_Position = projection * vec4((pos * scale) + offset, 0.0f, 1.0f);
 }
 @end
 
 @fs particle_fs
 layout(binding=0) uniform texture2D particle_tex;
 layout(binding=1) uniform sampler particle_smp;
+layout(binding=2) uniform particle_fs_params{
+    vec4 particle_color;
+};
 
-in vec2 TexCoords;
-in vec4 ParticleColor;
+in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-    // frag_color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // frag_color = texture(sampler2D(tex, smp), uv) ; //* color;
-    frag_color = ParticleColor * texture(sampler2D(particle_tex, particle_smp), TexCoords);
+    frag_color = particle_color * texture(sampler2D(particle_tex, particle_smp), uv);
 }
 @end
 @program particle particle_vs particle_fs
@@ -94,23 +90,24 @@ layout(binding=0) uniform postprocess_vs_params {
     int shake;
 };
 
-in vec4 vertex; // <vec2 position, vec2 texCoords>
-out vec2 TexCoords;
+in vec2 pos;
+in vec2 tex_coords;
+out vec2 uv;
 
 void main() {
-    gl_Position = vec4(vertex.xy, 0.0f, 1.0f); 
-    vec2 texture = vertex.zw;
+    gl_Position = vec4(pos, 0.0f, 1.0f); 
+    vec2 texture = tex_coords;
     
     if (chaos != 0) {
         float strength = 0.3;
-        vec2 pos = vec2(texture.x + sin(time) * strength, texture.y + cos(time) * strength);        
-        TexCoords = pos;
+        vec2 pos = vec2(tex_coords.x + sin(time) * strength, tex_coords.y + cos(time) * strength);        
+        uv = pos;
     }
     else if (confuse != 0) {
-        TexCoords = vec2(1.0 - texture.x, 1.0 - texture.y);
+        uv = vec2(1.0 - tex_coords.x, 1.0 - tex_coords.y);
     }
     else {
-        TexCoords = texture;
+        uv = tex_coords;
     }
     
     if (shake != 0) {
@@ -133,7 +130,7 @@ layout(binding=2) uniform postprocess_fs_params {
     int shake;
 };
 
-in vec2 TexCoords;
+in vec2 uv;
 out vec4 frag_color;
 
 void main() {
@@ -143,7 +140,7 @@ void main() {
     // Sample from texture offsets if using convolution matrix
     if(chaos != 0 || shake != 0) {
         for(int i = 0; i < 9; i++)
-            color_samples[i] = vec3(texture(sampler2D(scene_tex, scene_smp), TexCoords + offsets[i].xy));
+            color_samples[i] = vec3(texture(sampler2D(scene_tex, scene_smp), uv + offsets[i].xy));
     }
 
     // Process effects
@@ -159,7 +156,7 @@ void main() {
         frag_color.a = 1.0f;
     }
     else if (confuse != 0) {
-        frag_color = vec4(1.0 - texture(sampler2D(scene_tex, scene_smp), TexCoords).rgb, 1.0);
+        frag_color = vec4(1.0 - texture(sampler2D(scene_tex, scene_smp), uv).rgb, 1.0);
     }
     else if (shake != 0) {
         // Unpack blur kernel from vec4 array
@@ -173,7 +170,7 @@ void main() {
         frag_color.a = 1.0f;
     }
     else {
-        frag_color = texture(sampler2D(scene_tex, scene_smp), TexCoords);
+        frag_color = texture(sampler2D(scene_tex, scene_smp), uv);
     }
 }
 @end
@@ -188,12 +185,13 @@ layout(binding=0) uniform text_vs_params {
     mat4 projection;
 };
 
-in vec4 vertex; // <x, y, u, v>
-out vec2 TexCoords;
+in vec2 pos;
+in vec2 tex_coords;
+out vec2 uv;
 
 void main() {
-    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
-    TexCoords = vertex.zw;
+    gl_Position = projection * vec4(pos, 0.0, 1.0);
+    uv = tex_coords;
 }
 @end
 
@@ -204,12 +202,12 @@ layout(binding=2) uniform text_fs_params {
     vec3 text_color;
 };
 
-in vec2 TexCoords;
+in vec2 uv;
 out vec4 frag_color;
 
 void main() {
     // Sample the red channel (where the font data is) and use it as alpha
-    float alpha = texture(sampler2D(text_atlas, text_smp), TexCoords).r;
+    float alpha = texture(sampler2D(text_atlas, text_smp), uv).r;
     frag_color = vec4(text_color, alpha);
 }
 @end

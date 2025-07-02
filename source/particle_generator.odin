@@ -102,7 +102,9 @@ particle_generator_draw :: proc(pr: ^Particle_Renderer, pg: Particle_Generator, 
             particle_vs_params := Particle_Vs_Params {
                 projection = projection,
                 offset = p.position,
-                color = p.color,
+            }
+            particle_fs_params := Particle_Fs_Params {
+                particle_color = p.color,
             }
 
             if tex, exists := resman_get_texture(rm, "particle"); exists {
@@ -111,6 +113,7 @@ particle_generator_draw :: proc(pr: ^Particle_Renderer, pg: Particle_Generator, 
 
             sg.apply_bindings(pr.bind)
             sg.apply_uniforms(UB_particle_vs_params, { ptr = &particle_vs_params, size = size_of(particle_vs_params) })
+            sg.apply_uniforms(UB_particle_fs_params, { ptr = &particle_fs_params, size = size_of(particle_fs_params) })
             sg.draw(0, 6, 1)
         }
     }
