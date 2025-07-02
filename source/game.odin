@@ -9,7 +9,6 @@ import "core:c"
 import "core:math/linalg"
 
 import stbi "vendor:stb/image"
-
 import sapp "sokol/app"
 import sg "sokol/gfx"
 import sglue "sokol/glue"
@@ -20,14 +19,14 @@ LOGICAL_H :: 1080
 
 PLAYER_SIZE :: Vec2{150, 30}
 PLAYER_VELOCITY :: 1000
-PLAYER_COLOR :: Vec3{1,1,1}
+PLAYER_COLOR :: Vec3{1, 1, 1}
 PADDLE_BOUNCE_STRENGTH :: 2
 INITIAL_LIVES :: 3
 
 BALL_RADIUS :: 16
-BALL_SIZE :: Vec2{ BALL_RADIUS * 2, BALL_RADIUS * 2}
+BALL_SIZE :: Vec2 {BALL_RADIUS * 2, BALL_RADIUS * 2}
 BALL_INITIAL_VELOCITY :: Vec2{200, -700}
-BALL_COLOR :: Vec3{1,1,1}
+BALL_COLOR :: Vec3{1, 1, 1}
 
 UI_LIVES_POSITION :: Vec2{50, 50}
 UI_MENU_TITLE_OFFSET :: 50
@@ -58,7 +57,6 @@ Game_Memory :: struct {
 
 	player: Player,
     ball: Ball,
-
     levels: [dynamic]Game_Level,
     level: u32,
     powerups: [dynamic]Powerup,
@@ -66,12 +64,10 @@ Game_Memory :: struct {
 
     resman: ^Resource_Manager,
     audio_system: Audio_System,
-
     sprite_renderer: Sprite_Renderer,
     particle_renderer: Particle_Renderer,
     post_processor: Post_Processor,
     text_renderer: Text_Renderer,
-
     ball_pg: Particle_Generator,
 
     screen_width: u32,
@@ -122,11 +118,6 @@ Direction_Vectors := [Direction]Vec2{
 	.Down = {0,-1},
 	.Left = {-1,0},
 	.Right = {1,0},
-}
-
-Vertex :: struct {
-	x, y: f32,
-	u, v: f32,
 }
 
 Collision_Data :: struct {
@@ -200,50 +191,50 @@ game_init :: proc() {
 
     g.resman = new(Resource_Manager)
     resman_init(g.resman)
-    log.info("Initialized resource manager")
-
     create_and_load_white_texture(g.resman)
-    log.info("Initialized white fallback texture")
-
     sprite_renderer_init(&g.sprite_renderer, g.resman)
-    log.info("Initialized sprite renderer")
-
     particle_renderer_init(&g.particle_renderer, g.resman^)
-    log.info("Initialized particle renderer")
- 
     particle_generator_init(&g.ball_pg)
-    log.info("Initialized ball particle generator")
-
     post_processor_init(&g.post_processor, i32(g.width), i32(g.height))
-    log.info("Initialized post processor")
 
-    resman_load_texture(g.resman, "assets/background.jpg", "background")
-    resman_load_texture(g.resman, "assets/block.png", "block")
-    resman_load_texture(g.resman, "assets/block_solid.png", "block_solid")
-    resman_load_texture(g.resman, "assets/paddle.png", "paddle")
-    resman_load_texture(g.resman, "assets/awesomeface.png", "ball")
-    resman_load_texture(g.resman, "assets/particle.png", "particle")
-    resman_load_texture(g.resman, "assets/powerup_chaos.png", "chaos")
-    resman_load_texture(g.resman, "assets/powerup_confuse.png", "confuse")
-    resman_load_texture(g.resman, "assets/powerup_increase.png", "size")
-    resman_load_texture(g.resman, "assets/powerup_passthrough.png", "passthrough")
-    resman_load_texture(g.resman, "assets/powerup_speed.png", "speed")
-    resman_load_texture(g.resman, "assets/powerup_sticky.png", "sticky")
-    log.info("Finished loading textures")
+    log.info("Loading textures...")
+    texture_assets :: [?][2]string {
+        {"assets/background.jpg", "background"},
+        {"assets/block.png", "block"},
+        {"assets/block_solid.png", "block_solid"},
+        {"assets/paddle.png", "paddle"},
+        {"assets/awesomeface.png", "ball"},
+        {"assets/particle.png", "particle"},
+        {"assets/powerup_chaos.png", "chaos"},
+        {"assets/powerup_confuse.png", "confuse"},
+        {"assets/powerup_increase.png", "size"},
+        {"assets/powerup_passthrough.png", "passthrough"},
+        {"assets/powerup_speed.png", "speed"},
+        {"assets/powerup_sticky.png", "sticky"},
+    }
+    for ta in texture_assets {
+        resman_load_texture(g.resman, ta[0], ta[1])
+    }
+    log.info("Loaded textures")
 
     audio_init(&g.audio_system)
-    log.info("Initialized audio system")
 
-    audio_load_sound(&g.audio_system, "assets/music.ogg", "music")
-    audio_load_sound(&g.audio_system, "assets/hit-nonsolid.ogg", "hit-nonsolid")
-    audio_load_sound(&g.audio_system, "assets/solid.wav", "hit-solid")
-    audio_load_sound(&g.audio_system, "assets/powerup.wav", "get-powerup")
-    audio_load_sound(&g.audio_system, "assets/bleep.wav", "hit-paddle")
-    log.info("Finished loading sounds")
+    log.info("Loading sounds...")
+    audio_assets :: [?][2]string {
+        {"assets/music.ogg", "music"},
+        {"assets/hit-nonsolid.ogg", "hit-nonsolid"},
+        {"assets/solid.wav", "hit-solid"},
+        {"assets/powerup.wav", "get-powerup"},
+        {"assets/bleep.wav", "hit-paddle"},
+    }
+    for aa in audio_assets {
+        audio_load_sound(&g.audio_system, aa[0], aa[1])
+    }
+    log.info("Loaded sounds")
 
     text_renderer_init(&g.text_renderer, "assets/arial.ttf", DEFAULT_FONT_SIZE)
-    log.info("Initialized text renderer")
 
+    log.info("Loading game levels...")
     one, two, three, four: Game_Level
     game_level_load(&one, "assets/one.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, one)
@@ -253,6 +244,8 @@ game_init :: proc() {
     append(&g.levels, three)
     game_level_load(&four, "assets/four.lvl", u32(g.width), u32(g.height) / 2)
     append(&g.levels, four)
+    log.info("Loaded game levels")
+
     g.level = 0
 
     player_init(&g.player, g.width, g.height)
@@ -300,11 +293,17 @@ update :: proc(dt: f32) {
 
 render :: proc(dt: f32) {
     msaa_pass_action := sg.Pass_Action {
-        colors = { 0 = { load_action = .CLEAR, clear_value = BACKGROUND_COLOR }},
+        colors = {
+            0 = {
+                load_action = .CLEAR, 
+                clear_value = BACKGROUND_COLOR
+            },
+        },
     }
     // Render scene to MSAA fb
     sg.begin_pass({ 
-        action = msaa_pass_action, attachments = g.post_processor.msaa_attachments,
+        action = msaa_pass_action, 
+        attachments = g.post_processor.msaa_attachments,
     })
     sg.apply_viewport(0, 0, i32(g.width), i32(g.height), true)
 
@@ -385,9 +384,14 @@ render :: proc(dt: f32) {
 
     // Render postprocessed fullscreen quad
     fullscreen_pass_action := sg.Pass_Action {
-        colors = { 0 = { load_action = .CLEAR, clear_value = BACKGROUND_COLOR }},
+        colors = { 
+            0 = { 
+                load_action = .CLEAR, 
+                clear_value = BACKGROUND_COLOR 
+            },
+        },
     }
-    sg.begin_pass({ action = fullscreen_pass_action, swapchain = sglue.swapchain() })
+    sg.begin_pass({action = fullscreen_pass_action, swapchain = sglue.swapchain()})
         sg.apply_viewport(g.viewport_x, g.viewport_y, g.viewport_width, g.viewport_height, true)
         sg.apply_pipeline(g.post_processor.pip)
         sg.apply_bindings(g.post_processor.bind)
@@ -409,6 +413,7 @@ player_init :: proc(player: ^Player, game_width: u32, game_height: u32) {
         texture_name = "paddle",
         color = PLAYER_COLOR,
     )
+    log.info("Initialized player")
 }
 
 compute_projection :: proc() -> Mat4f32 {
@@ -549,9 +554,9 @@ game_reset_player :: proc() {
 }
 
 entity_init :: proc(
-	entity: ^Entity, 
-	position: Vec2 = {0,0}, 
-	size: Vec2 = {1,1}, 
+	entity: ^Entity,
+	position: Vec2 = {0,0},
+	size: Vec2 = {1,1},
 	color: Vec3 = {1,1,1},
 	velocity: Vec2 = {0,0},
     texture_name: string = "white",
@@ -621,16 +626,13 @@ ball_reset :: proc(position: Vec2) {
 }
 
 game_level_load :: proc(game_level: ^Game_Level, file: string, level_width: u32, level_height: u32) {
-    // clear bricks
     clear(&game_level.bricks)
 
-    // load file to string
     data_string := read_file_to_string(file)
     defer delete(data_string)
 
     data_string = strings.trim_space(data_string)
 
-    // read string to brick/space types into tileData
     tile_data: [dynamic][dynamic]Tile_Code
     lines, _ := strings.split(data_string, "\n")
     defer delete(lines)
@@ -655,18 +657,12 @@ game_level_load :: proc(game_level: ^Game_Level, file: string, level_width: u32,
 
             code: Tile_Code
             switch val {
-            case 0:
-                code = .Space
-            case 1:
-                code = .Indestructible_Brick
-            case 2:
-                code = .Brick_A
-            case 3:
-                code = .Brick_B
-            case 4:
-                code = .Brick_C
-            case 5:
-                code = .Brick_D
+            case 0: code = .Space
+            case 1: code = .Indestructible_Brick
+            case 2: code = .Brick_A
+            case 3: code = .Brick_B
+            case 4: code = .Brick_C
+            case 5: code = .Brick_D
             }
             append(&row_codes, code)
         }
@@ -736,14 +732,10 @@ game_level_draw :: proc(game_level: ^Game_Level, sr: ^Sprite_Renderer, rm: Resou
 
 game_reset_level :: proc() {
     switch g.level {
-    case 0:
-        game_level_load(&g.levels[0], "assets/one.lvl", g.width, g.height/2)
-    case 1:
-        game_level_load(&g.levels[1], "assets/two.lvl", g.width, g.height/2)
-    case 2:
-        game_level_load(&g.levels[2], "assets/three.lvl", g.width, g.height/2)
-    case 3:
-        game_level_load(&g.levels[3], "assets/four.lvl", g.width, g.height/2)
+    case 0: game_level_load(&g.levels[0], "assets/one.lvl", g.width, g.height/2)
+    case 1: game_level_load(&g.levels[1], "assets/two.lvl", g.width, g.height/2)
+    case 2: game_level_load(&g.levels[2], "assets/three.lvl", g.width, g.height/2)
+    case 3: game_level_load(&g.levels[3], "assets/four.lvl", g.width, g.height/2)
     }
     clear(&g.powerups)
     g.lives = INITIAL_LIVES
@@ -755,21 +747,7 @@ read_file_to_string :: proc(path: string) -> string {
 		log.error("Failed to read file")
 		os.exit(-1)
 	}
-
 	return string(data)
-}
-
-vector_direction :: proc(target: Vec2) -> Direction {
-    max: f32
-    best_match: Direction
-    for dir in Direction {
-        dot := linalg.dot(linalg.normalize0(target), Direction_Vectors[dir])
-        if dot > max {
-            max = dot
-            best_match = dir
-        }
-    }
-    return best_match
 }
 
 update_viewport_and_projection :: proc(screen_width: u32, screen_height: u32) {
@@ -809,6 +787,7 @@ ball_init :: proc(ball: ^Ball, player: Player, velocity: Vec2) {
     )
     ball.stuck = true
     ball.radius = BALL_RADIUS
+    log.info("Initialized ball")
 }
 
 create_and_load_white_texture :: proc(rm: ^Resource_Manager) {
@@ -830,4 +809,5 @@ create_and_load_white_texture :: proc(rm: ^Resource_Manager) {
        return
     }
     resman_set_texture(rm, "white", white_texture)
+    log.info("Initialized white fallback texture")
 }

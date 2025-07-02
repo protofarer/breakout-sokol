@@ -10,9 +10,11 @@ Particle_Renderer :: struct {
 }
 
 particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
+    log.info("Initializing particle renderer...")
+
     pr.projection = compute_projection()
 
-    // 1. Create the quad geometry (same as OpenGL version)
+    // Create the quad geometry
     particle_quad := [?]f32 {
         0.0, 1.0, 0.0, 1.0,
         1.0, 0.0, 1.0, 0.0,
@@ -23,7 +25,7 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
         1.0, 0.0, 1.0, 0.0,
     }
 
-    // 2. Create vertex buffer
+    // Create vertex buffer
     pr.bind.vertex_buffers[0] = sg.make_buffer({
       data = { ptr = &particle_quad, size = size_of(particle_quad) },
       label = "particle-vertices",
@@ -34,7 +36,7 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
     }
     log.info("Created particle vertex buffer")
 
-    // 4. Set up default bindings
+    // Set up default bindings
     if tex, ok_white_tex := resman_get_texture(rm, "white"); ok_white_tex {
         pr.bind.images[IMG_particle_tex] = tex
     }
@@ -48,7 +50,7 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
     }
     log.info("Created particle sampler")
 
-    // 6. Create shader
+    // Create shader
     shader := sg.make_shader(particle_shader_desc(sg.query_backend()))
     if sg.query_shader_state(shader) != .VALID {
       log.error("Failed to create particle shader")
@@ -56,12 +58,12 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
     }
     log.info("Created particle shader")
 
-    // 6. Create the rendering pipeline
+    // Create the rendering pipeline
     pr.pip = sg.make_pipeline({
         shader = shader,
         layout = {
             attrs = {
-                    ATTR_particle_vertex = { format = .FLOAT4 },
+                    ATTR_particle_vertex = {format = .FLOAT4},
             },
         },
         colors = {
@@ -82,7 +84,8 @@ particle_renderer_init :: proc(pr: ^Particle_Renderer, rm: Resource_Manager) {
       return
     }
     log.info("Created particle pipeline")
-    log.info("Done initializing particle renderer")
+
+    log.info("Initialized particle renderer")
 }
 
 particle_renderer_cleanup :: proc(pr: Particle_Renderer) {

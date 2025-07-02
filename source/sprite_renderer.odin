@@ -11,7 +11,13 @@ Sprite_Renderer :: struct {
 
 sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
     log.info("Initializing sprite renderer...")
-    // 1. Create the quad geometry (same as OpenGL version)
+
+    // Create the quad geometry
+    Vertex :: struct {
+        x, y: f32,
+        u, v: f32,
+    }
+
     vertices := [?]Vertex {
         {0, 1, 0, 1},  // bottom-left
         {1, 0, 1, 0},  // top-right
@@ -22,7 +28,7 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
         {1, 0, 1, 0},  // top-right
     }
 
-    // 2. Create vertex buffer
+    // Create vertex buffer
     sr.bind.vertex_buffers[0] = sg.make_buffer({
         data = { ptr = &vertices, size = size_of(vertices) },
         label = "sprite-vertices",
@@ -31,9 +37,9 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
         log.error("Failed to create vertex buffer")
         return
     }
-    log.info("Created vertex buffer")
+    log.info("Created sprite vertex buffer")
 
-    // 3. Set up default bindings
+    // Set up default bindings
     if tex, ok_white_tex := resman_get_texture(rm^, "white"); ok_white_tex {
         sr.bind.images[IMG_tex] = tex
     }
@@ -45,17 +51,17 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
         log.error("Failed to create sampler")
         return
     }
-    log.info("Created sampler")
+    log.info("Created sprite sampler")
 
-    // 4. Create shader
+    // Create shader
     shader := sg.make_shader(sprite_shader_desc(sg.query_backend()))
     if sg.query_shader_state(shader) != .VALID {
         log.error("Failed to create shader")
         return
     }
-    log.info("Created shader")
+    log.info("Created sprite shader")
 
-    // 5. Create the rendering pipeline
+    // Create the rendering pipeline
     sr.pip = sg.make_pipeline({
         shader = shader,
 		layout = {
@@ -81,7 +87,8 @@ sprite_renderer_init :: proc(sr: ^Sprite_Renderer, rm: ^Resource_Manager) {
         log.error("Failed to create pipeline")
         return
     }
-    log.info("Created pipeline")
+    log.info("Created sprite pipeline")
+
     log.info("Done initializing sprite renderer")
 }
 
@@ -90,7 +97,7 @@ sprite_renderer_cleanup :: proc(sr: Sprite_Renderer) {
 	sg.destroy_pipeline(sr.pip)
 }
 
-// 2D, rotation in degrees
+// rotation in degrees
 compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotation: f32 = 0) -> Mat4f32 {
 	proj := compute_projection()
     model := linalg.matrix4_scale(Vec3{size.x, size.y, 1})
@@ -100,7 +107,6 @@ compute_sprite_mvp :: proc(position: Vec2 = {0,0}, size: Vec2 = {10,10}, rotatio
     model = linalg.matrix4_translate(Vec3{position.x, position.y, 0}) * model
 	return proj * model
 }
-
 
 draw_sprite :: proc(sr: ^Sprite_Renderer, rm: Resource_Manager, position: Vec2, size: Vec2 = {10,10}, rotation: f32 = 0, texture_name: string = "", color: Vec3 = {1,1,1}) {
     // Compute transformation matrix and combine with projection

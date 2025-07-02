@@ -7,12 +7,12 @@ import sg "sokol/gfx"
 
 Resource_Manager :: struct {
     textures: map[string]sg.Image,
-    // sounds: map[string]^ma.sound,
 }
 
 resman_init :: proc(rm: ^Resource_Manager) {
+    log.info("Initializing resource manager...")
     rm.textures = make(map[string]sg.Image)
-    // rm.sounds = make(map[string]^ma.sound)
+    log.info("Initialized resource manager")
 }
 
 resman_load_texture :: proc(rm: ^Resource_Manager, path: string, name: string) -> sg.Image {
@@ -30,7 +30,7 @@ resman_load_texture :: proc(rm: ^Resource_Manager, path: string, name: string) -
         data = {
             subimage = {
                 0 = {
-                    0 = { ptr = pixels, size = uint(width * height * 4) }, // always 4 bytes per pixel
+                    0 = {ptr = pixels, size = uint(width * height * 4)}, // always 4 bytes per pixel
                 },
             },
         },
@@ -38,8 +38,11 @@ resman_load_texture :: proc(rm: ^Resource_Manager, path: string, name: string) -
     })
     if sg.query_image_state(img) != .VALID {
         log.error("Failed to create image for:", name, ". Falling back to placeholder texture")
-        tex_white, exists := resman_get_texture(rm^, "white")
-        return tex_white
+        if tex_white, exists := resman_get_texture(rm^, "white"); exists {
+            return tex_white
+        } else {
+            return {}
+        }
     }
 
     resman_set_texture(rm, name, img)
@@ -59,33 +62,6 @@ resman_get_texture :: proc(rm: Resource_Manager, name: string) -> (sg.Image, boo
     return tex, exists
 }
 
-// resman_load_sound :: proc(rm: ^Resource_Manager, file: string, name: string) -> ^ma.sound {
-//     sound := new(ma.sound)
-//
-//     file_cstring := strings.clone_to_cstring(file)
-//     result := ma.sound_init_from_file(&g.audio_engine, file_cstring, nil, nil, nil, sound)
-//     delete(file_cstring)
-//
-//     if result != ma.result.SUCCESS {
-//         log.error("Failef to load sound:", file)
-//         free(sound)
-//         return nil
-//     } 
-//
-//     log.info("Load sound, file:", file, "name:", name)
-//     g.resman.sounds[name] = sound
-//     return g.resman.sounds[name]
-// }
-//
-// resman_get_sound :: proc(rm: Resource_Manager, name: string) -> (^ma.sound, bool) {
-//     sound, exists := rm.sounds[name]
-//     if !exists do log.error("Failed to get sound:", name)
-//     return sound, exists
-// }
-
 resman_cleanup :: proc(rm: ^Resource_Manager) {
     delete(g.resman.textures)
-    // for key, &val in g.resman.sounds {
-    //     ma.sound_uninit(val)
-    // }
 }

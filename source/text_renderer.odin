@@ -40,7 +40,7 @@ Text_Draw_Command :: struct {
 }
 
 text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32) {
-    log.info("Initializing text renderer with font:", font_path, "size:", font_size)
+    log.info("Initializing text renderer with font:", font_path, "size:", font_size, "...")
 
     tr.font_size = font_size
 
@@ -97,13 +97,11 @@ text_renderer_init :: proc(tr: ^Text_Renderer, font_path: string, font_size: f32
     tr.batch.vertices = make([dynamic]f32, 0, MAX_TEXT_LENGTH * N_VERTICES_PER_CHAR * N_FLOATS_PER_VERTEX)
     tr.batch.draw_commands = make([dynamic]Text_Draw_Command, 0, 32)
 
-    log.info("Text renderer intiailized successfully")
+    log.info("Initialized text renderer")
 }
 
 text_renderer_flush :: proc(tr: ^Text_Renderer) {
-    if len(tr.batch.vertices) == 0 {
-        return
-    }
+    if len(tr.batch.vertices) == 0 do return
 
     // Single buffer update for all text
     sg.update_buffer(tr.vertex_buffer, {
@@ -111,7 +109,6 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
         size = uint(len(tr.batch.vertices) * size_of(f32)),
     })
 
-    // Set up pipeline and projection once
     sg.apply_pipeline(tr.pip)
     sg.apply_bindings(tr.bind)
 
@@ -120,7 +117,6 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
     }
     sg.apply_uniforms(UB_text_vs_params, { ptr = &vs_params, size = size_of(vs_params) })
 
-    // Draw each text string with its color
     for cmd in tr.batch.draw_commands {
         fs_params := Text_Fs_Params{
             text_color = cmd.color,
@@ -129,7 +125,6 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
         sg.draw(cmd.start_vertex, cmd.num_vertices, 1)
     }
 
-    // Clear the batch for next frame
     clear(&tr.batch.vertices)
     clear(&tr.batch.draw_commands)
 }
@@ -137,7 +132,7 @@ text_renderer_flush :: proc(tr: ^Text_Renderer) {
 create_font_atlas :: proc(tr: ^Text_Renderer, font_info: ^stbtt.fontinfo, size: f32) {
     scale := stbtt.ScaleForPixelHeight(font_info, size)
 
-    // Get font vertical metrics
+    // get font vertical metrics
     ascent, descent, line_gap: i32
     stbtt.GetFontVMetrics(font_info, &ascent, &descent, &line_gap)
     tr.line_height = f32(ascent - descent + line_gap) * scale
@@ -151,7 +146,7 @@ create_font_atlas :: proc(tr: ^Text_Renderer, font_info: ^stbtt.fontinfo, size: 
 
     // Render ea ascii char (32-127)
     for c: rune = 32; c < 128; c += 1 {
-        // Get char bitmap
+        // get char bitmap
         char_width, char_height, xoff, yoff: i32
         char_bitmap := stbtt.GetCodepointBitmap(
             font_info,
@@ -182,7 +177,7 @@ create_font_atlas :: proc(tr: ^Text_Renderer, font_info: ^stbtt.fontinfo, size: 
             row_height = 0
         }
 
-        // Copy character to atlas
+        // copy character to atlas
         for y in 0..<char_height {
             for x in 0..<char_width {
                 src_idx := y * char_width + x
@@ -227,7 +222,6 @@ create_font_atlas :: proc(tr: ^Text_Renderer, font_info: ^stbtt.fontinfo, size: 
 }
 
 text_draw :: proc(tr: ^Text_Renderer, text: string, x, y: f32, color: Vec3 = {1, 1, 1}) {
-    // if len(text) == 0 || len(text) > MAX_TEXT_LENGTH {
     if len(text) == 0 {
         return
     }

@@ -37,14 +37,15 @@ Audio_System :: struct {
 }
 
 audio_init :: proc(audio: ^Audio_System) -> bool {
+    log.info("Initializing audio system...")
     result := engine_init(nil, &audio.engine)
     if result != .SUCCESS {
         log.error("Failed to initialize audio engine:", result)
         return false
     }
-    
+
     audio.sounds = make(map[string]^Sound)
-    log.info("Audio system initialized")
+    log.info("Initialized Audio system")
     return true
 }
 
@@ -59,16 +60,16 @@ audio_cleanup :: proc(audio: ^Audio_System) {
 
 audio_load_sound :: proc(audio: ^Audio_System, file_path: string, name: string) -> bool {
     sound := new(Sound)
-    
+
     file_cstring := strings.clone_to_cstring(file_path, context.temp_allocator)
     result := sound_init_from_file(&audio.engine, file_cstring, 0, nil, nil, sound)
-    
+
     if result != .SUCCESS {
         log.error("Failed to load sound:", file_path, "error:", result)
         free(sound)
         return false
     }
-    
+
     audio.sounds[name] = sound
     log.info("Loaded sound:", name, "from:", file_path)
     return true
@@ -80,7 +81,7 @@ play_sound :: proc(audio: ^Audio_System, name: string, loop: bool = false) {
         log.error("Sound not found:", name)
         return
     }
-    
+
     sound_set_looping(sound, b32(loop))
     sound_seek_to_pcm_frame(sound, 0)
     sound_start(sound)
@@ -89,7 +90,7 @@ play_sound :: proc(audio: ^Audio_System, name: string, loop: bool = false) {
 stop_sound :: proc(audio: ^Audio_System, name: string) {
     sound, exists := audio.sounds[name]
     if !exists do return
-    
+
     sound_stop(sound)
 }
 
@@ -102,12 +103,12 @@ stop_all_sounds :: proc(audio: ^Audio_System) {
 set_sound_volume :: proc(audio: ^Audio_System, name: string, volume: f32) {
     sound, exists := audio.sounds[name]
     if !exists do return
-    
+
     sound_set_volume(sound, volume)
 }
 
 is_sound_playing :: proc(audio: ^Audio_System, name: string) -> bool {
-    // Note: ma_sound_is_playing doesn't exist in this miniaudio version
+    // NOTE: ma_sound_is_playing doesn't exist in this miniaudio version
     // Always return false for now - this is a minor feature
     return false
 }

@@ -10,7 +10,6 @@
 - Error handling
 - Replace magic numbers with constants
 - Resizable window, maintains aspect ratio
-- Procedure params expose global dependencies
 
 # Hot reloading and build guide
 

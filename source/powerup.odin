@@ -5,8 +5,8 @@ import "core:math/rand"
 POWERUP_SIZE :: Vec2{60,20}
 POWERUP_VELOCITY :: Vec2{0,150}
 
-POWERUP_COMMON_SPAWN_CHANCE :: 75
-POWERUP_RARE_SPAWN_CHANCE :: 15
+POWERUP_COMMON_SPAWN_CHANCE :: 15
+POWERUP_RARE_SPAWN_CHANCE :: 75
 
 POWERUP_STICKY_DURATION :: 5
 POWERUP_PASSTHROUGH_DURATION :: 10
@@ -67,27 +67,27 @@ should_spawn :: proc(chance: u32) -> bool {
 }
 
 powerups_spawn :: proc(block: Entity, powerups: ^[dynamic]Powerup) {
-    if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) { // 1 in 75 chance
+    if should_spawn(POWERUP_RARE_SPAWN_CHANCE) { // 1 in 75 chance
         p: Powerup
         powerup_init(&p, .Speed, POWERUP_COLOR_SPEED, 0, block.position, "speed")
         append(powerups, p)
-    } else if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) {
+    } else if should_spawn(POWERUP_RARE_SPAWN_CHANCE) {
         p: Powerup
         powerup_init(&p, .Sticky, POWERUP_COLOR_STICKY, POWERUP_STICKY_DURATION, block.position, "sticky")
         append(powerups, p)
-    } else if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) {
+    } else if should_spawn(POWERUP_RARE_SPAWN_CHANCE) {
         p: Powerup
         powerup_init(&p, .Passthrough, POWERUP_COLOR_PASSTHROUGH, POWERUP_PASSTHROUGH_DURATION, block.position, "passthrough")
         append(powerups, p)
-    } else if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) {
+    } else if should_spawn(POWERUP_RARE_SPAWN_CHANCE) {
         p: Powerup
         powerup_init(&p, .Padsize_Increase, POWERUP_COLOR_PADSIZE, 0, block.position, "size")
         append(powerups, p)
-    } else if should_spawn(POWERUP_RARE_SPAWN_CHANCE) {
+    } else if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) { // 1 in 15 chance
         p: Powerup
         powerup_init(&p, .Confuse, POWERUP_COLOR_CONFUSE, POWERUP_CONFUSE_DURATION, block.position, "confuse")
         append(powerups, p)
-    } else if should_spawn(POWERUP_RARE_SPAWN_CHANCE) {
+    } else if should_spawn(POWERUP_COMMON_SPAWN_CHANCE) {
         p: Powerup
         powerup_init(&p, .Chaos, POWERUP_COLOR_CHAOS, POWERUP_CHAOS_DURATION, block.position, "chaos")
         append(powerups, p)
@@ -96,21 +96,28 @@ powerups_spawn :: proc(block: Entity, powerups: ^[dynamic]Powerup) {
 
 powerup_activate :: proc(p: ^Powerup) {
     p.activated = true
+
     switch p.type {
+
     case .Speed:
         g.ball.velocity *= POWERUP_SPEED_MULTIPLIER
+
     case .Sticky:
         g.ball.sticky = true
         g.player.color = {1,0.5,1}
+
     case .Passthrough:
         g.ball.passthrough = true
         g.ball.color = {1,0.5,0.5}
+
     case .Padsize_Increase:
         g.player.size.x += POWERUP_PADDLE_SIZE_INCREASE
+
     case .Confuse:
         if !g.post_processor.chaos {
             g.post_processor.confuse = true
         }
+
     case .Chaos:
         if !g.post_processor.confuse {
             g.post_processor.chaos = true
@@ -121,22 +128,19 @@ powerup_activate :: proc(p: ^Powerup) {
 powerups_update :: proc(dt: f32, powerups: ^[dynamic]Powerup) {
     for &p in powerups {
         p.position += p.velocity * dt
-
         if p.activated {
             p.duration -= dt
-
             if p.duration <= 0 {
                 p.activated = false
-
                 if p.type == .Sticky {
                     if !is_other_powerup_active(.Sticky) {
                         g.ball.sticky = false
-                        g.player.color = {1,1,1}
+                        g.player.color = PLAYER_COLOR
                     }
                 } else if p.type == .Passthrough {
                     if !is_other_powerup_active(.Passthrough) {
                         g.ball.passthrough = false
-                        g.ball.color = {1,1,1}
+                        g.ball.color = BALL_COLOR
                     }
                 } else if p.type == .Confuse {
                     if !is_other_powerup_active(.Confuse) {

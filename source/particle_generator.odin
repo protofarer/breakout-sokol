@@ -1,5 +1,6 @@
 package game
 
+import "core:log"
 import "core:math/rand"
 import sa "core:container/small_array"
 import sg "sokol/gfx"
@@ -24,16 +25,20 @@ Particle_Generator :: struct {
 }
 
 particle_generator_init :: proc(pg: ^Particle_Generator) {
+    log.info("Initializing ball particle generator...")
+
     particles: sa.Small_Array(MAX_PARTICLES, Particle)
     particle := particle_init()
     for _ in 0..<MAX_PARTICLES {
         sa.push(&particles, particle)
     }
+
     pg^ = Particle_Generator {
         particles = particles,
         max_particles = MAX_PARTICLES,
     }
 
+    log.info("Initialized ball particle generator")
 }
 
 particle_generator_update :: proc(pg: ^Particle_Generator, dt: f32, object: Entity, n_new_particles: int = 2, offset: Vec2 = {0,0}) {
@@ -59,13 +64,16 @@ particle_generator_first_unused_particle :: proc(pg: ^Particle_Generator) -> int
             return i
         }
     }
+
     for i in 0..<pg.last_used_particle {
         if sa.get(pg.particles, i).life <= 0 {
             pg.last_used_particle = i
             return i
         }
     }
+
     pg.last_used_particle = 0
+
     return 0
 }
 
@@ -73,21 +81,23 @@ particle_generator_respawn_particle :: proc(pg: ^Particle_Generator, particle: ^
     rgn := rand.float32_range(-PARTICLE_POSITION_VARIANCE, PARTICLE_POSITION_VARIANCE)
     particle.position = object.position + rgn + offset
 
-    random_color := rand.float32_range(PARTICLE_COLOR_MIN, PARTICLE_COLOR_MAX)
-    particle.color = {random_color, random_color, random_color, 1.0}
+    rgc := rand.float32_range(PARTICLE_COLOR_MIN, PARTICLE_COLOR_MAX)
+    particle.color = {rgc, rgc, rgc, 1.0}
 
     particle.life = 1
     particle.velocity = object.velocity * PARTICLE_VELOCITY_SCALE
 }
 
-particle_init :: proc() -> Particle {
-    return { color = {1,1,1,1} } }
+particle_init :: proc() -> Particle { 
+    return {color = {1,1,1,1}} 
+}
 
 particle_generator_draw :: proc(pr: ^Particle_Renderer, pg: Particle_Generator, rm: Resource_Manager) {
     projection := pr.projection
 
     for i in 0..<sa.len(pg.particles) {
         p := sa.get(pg.particles, i)
+
         if p.life > 0 {
             particle_vs_params := Particle_Vs_Params {
                 projection = projection,

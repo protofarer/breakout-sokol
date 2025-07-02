@@ -13,12 +13,14 @@ check_ball_box_collision :: proc(ball: Ball, box: Entity) -> Collision_Data {
     ball_center := ball.position + ball.radius
     half_extents := Vec2{box.size.x / 2, box.size.y / 2}
     box_center := Vec2{box.position.x + half_extents.x, box.position.y + half_extents.y}
+
     d := ball_center - box_center
     clamped: Vec2
     clamped.x = clamp(d.x, -half_extents.x, half_extents.x)
     clamped.y = clamp(d.y, -half_extents.y, half_extents.y)
     closest := box_center + clamped
     d = closest - ball_center
+
     if linalg.length(d) < ball.radius {
         return {
             collided = true,
@@ -36,7 +38,6 @@ check_ball_box_collision :: proc(ball: Ball, box: Entity) -> Collision_Data {
 }
 
 collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
-    // for &box in g.levels[g.level].bricks {
     for &box in bricks {
         if !box.destroyed {
             collision := check_ball_box_collision(g.ball, box)
@@ -69,7 +70,6 @@ collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
                         } else {
                             g.ball.position.y += penetration
                         }
-
                     }
                 }
             }
@@ -92,14 +92,30 @@ collisions_update :: proc(bricks: []Brick, as: ^Audio_System) {
     if !g.ball.stuck && collision.collided {
         center_board := g.player.position.x + (g.player.size.x / 2)
         distance := g.ball.position.x + g.ball.radius - center_board
+
         pct := distance / (g.player.size.x / 2)
-        strength :f32= PADDLE_BOUNCE_STRENGTH
+        strength: f32 = PADDLE_BOUNCE_STRENGTH
         speed := linalg.length(g.ball.velocity)
         g.ball.velocity.x = BALL_INITIAL_VELOCITY.x * pct * strength
+
         g.ball.velocity.y = -1 * abs(g.ball.velocity.y)
         g.ball.velocity = linalg.normalize0(g.ball.velocity) * speed
+
         g.ball.stuck = g.ball.sticky
+
         play_sound(as, "hit-paddle")
     }
 }
 
+vector_direction :: proc(target: Vec2) -> Direction {
+    max: f32
+    best_match: Direction
+    for dir in Direction {
+        dot := linalg.dot(linalg.normalize0(target), Direction_Vectors[dir])
+        if dot > max {
+            max = dot
+            best_match = dir
+        }
+    }
+    return best_match
+}

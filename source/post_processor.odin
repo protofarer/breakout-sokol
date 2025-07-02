@@ -1,10 +1,11 @@
 package game
 
+import "core:log"
 import sg "sokol/gfx"
 import sapp "sokol/app"
 
 Post_Processor :: struct {
-    // anti-aliasing via multisampled framebuffer
+    // Anti-aliasing via multisampled framebuffer
     msaa_attachments: sg.Attachments,
     msaa_color_img: sg.Image,
     msaa_depth_img: sg.Image,
@@ -24,11 +25,13 @@ Post_Processor :: struct {
 
     width, height: i32,
 
-    // cached uniform params
+    // Cached uniform params
     fs_params: Postprocess_Fs_Params,
 }
 
 post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
+    log.info("Initializing post processor...")
+
     pp.width = width
     pp.height = height
 
@@ -46,9 +49,7 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
 
     // resolve target (receive msaa resolved image)
     pp.resolve_color_img = sg.make_image({
-        usage = {
-            render_attachment = true,
-        },
+        usage = {render_attachment = true},
         width = width,
         height = height,
         pixel_format = .RGBA8,
@@ -57,13 +58,11 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     })
 
     pp.msaa_depth_img = sg.make_image({
-        usage = {
-            render_attachment = true,
-        },
+        usage = {render_attachment = true},
         width = width,
         height = height,
         pixel_format = .DEPTH_STENCIL,
-        sample_count = 4, // 4x MSAA
+        sample_count = MSAA_SAMPLE_COUNT, // 4x MSAA
         label = "msaa-depth",
 
     })
@@ -71,16 +70,20 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     // attachments obj with msaa resolve
     pp.msaa_attachments = sg.make_attachments({
         colors = {
-            0 = { image = pp.msaa_color_img },
+            0 = {
+                image = pp.msaa_color_img
+            },
         },
         resolves = {
-            0 = { image = pp.resolve_color_img }, // triggers msaa resolve
+            0 = {
+                image = pp.resolve_color_img
+            }, // triggers msaa resolve
         },
-        depth_stencil = { image = pp.msaa_depth_img },
+        depth_stencil = {image = pp.msaa_depth_img},
         label = "msaa-attachments",
     })
 
-    // quad
+    // Create quad geometry
     vertices := [?]f32{
         // pos      // tex
         -1, -1,     0, 0,
@@ -90,7 +93,7 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     }
 
     pp.bind.vertex_buffers[0] = sg.make_buffer({
-        data = { ptr = &vertices, size = size_of(vertices) },
+        data = {ptr = &vertices, size = size_of(vertices)},
         label = "post-vertices",
     })
 
@@ -107,7 +110,7 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
         shader = shader,
         layout = {
             attrs = {
-                ATTR_postprocess_vertex = { format = .FLOAT4 },
+                ATTR_postprocess_vertex = {format = .FLOAT4},
             },
         },
         primitive_type = .TRIANGLE_STRIP,
@@ -117,15 +120,15 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
     params: Postprocess_Fs_Params
     offset: f32 = 1.0 / 300.0
         params.offsets = {
-        {-offset,  offset, 0, 0},  // top-left
-        { 0.0,     offset, 0, 0},  // top-center
-        { offset,  offset, 0, 0},  // top-right
-        {-offset,  0.0, 0, 0},     // center-left
-        { 0.0,     0.0, 0, 0},     // center-center
-        { offset,  0.0, 0, 0},     // center-right
-        {-offset, -offset, 0, 0},  // bottom-left
-        { 0.0,    -offset, 0, 0},  // bottom-center
-        { offset, -offset, 0, 0},  // bottom-right
+        {-offset,  offset,  0, 0},  // top-left
+        { 0.0,     offset,  0, 0},  // top-center
+        { offset,  offset,  0, 0},  // top-right
+        {-offset,  0,       0, 0},  // center-left
+        { 0.0,     0,       0, 0},  // center-center
+        { offset,  0,       0, 0},  // center-right
+        {-offset, -offset,  0, 0},  // bottom-left
+        { 0.0,    -offset,  0, 0},  // bottom-center
+        { offset, -offset,  0, 0},  // bottom-right
     }
     // Edge detection kernel
     params.edge_kernel = {
@@ -140,6 +143,8 @@ post_processor_init :: proc(pp: ^Post_Processor, width, height: i32) {
         {1.0/16, 2.0/16, 1.0/16, 0},
     }
     pp.fs_params = params
+
+    log.info("Initialized post processor")
 }
 
 post_processor_apply_uniforms :: proc(pp: ^Post_Processor, dt: f32) {
