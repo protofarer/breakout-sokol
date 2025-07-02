@@ -1,5 +1,5 @@
 # Breakout Sokol
-Purpose of this project is to lay the foundation for future iterations and gamedev projects. It emphasizes header libraries and using no game engine or framework. I expect to progress my gamedev skillset, both design and technology, with this as a base. 
+Purpose of this project is to lay the foundation for future iterations and gamedev projects. It uses header libraries. I expect to progress my gamedev skillset, both design and technology, with this as a base. 
 
 From a features standpoint this repo is considered done, future changes include refactors, renaming, and other minor development. For example, I expect to use this repo as a starting point for my own version of Breakout, implementing and designing effects that use a Particle Renderer or add an interesting mechanic that transforms gameplay.
 
