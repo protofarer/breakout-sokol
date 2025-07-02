@@ -1,4 +1,18 @@
-# Odin + Sokol + Hot Reload template
+# Breakout Sokol
+- Started with the OpenGL breakout example in C [learn OpenGL](https://learnopengl.com/In-Practice/2D-Game/Breakout)
+- Rewrite in Odin
+- Use Sokol instead of GLFW and use Zylinski's hot reload and sokol template
+- Add resource management
+- Use miniaudio
+- Use stb/image
+- Use stb/truetype
+- Batch text draw calls
+- Error handling
+- Replace magic numbers with constants
+- Resizable window, maintains aspect ratio
+- Procedure params expose global dependencies
+
+# Hot reloading and build guide
 
 Hot reload gameplay code when making games using Odin + Sokol. Also comes with web build support (no hot reload on web, it's just for web release builds).
 
@@ -35,6 +49,9 @@ If you want web build support, then you either need `emcc` in your path _or_ you
 3. A game with just a spinning cube should start
 4. Leave the game running, change a some line in `source/game.odin`. For example, you can modify the line `g.rx += 60 * dt` to use the value `500` instead of `60`.
 5. Re-run `build.py -hot-reload -run`. The game DLL will re-compile and get reloaded. The cube will spin faster.
+## Precompiled libraries
+
+1. Done automatically, otherwise force by running `build.py -check-miniaudio`
 
 > [!NOTE]
 > It doesn't matter if you use `-run` on step 5). If the hot reload executable is already running, then it won't try to re-start it. It will just re-build the game DLL and reload that.
